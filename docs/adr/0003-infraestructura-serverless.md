@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-09-14
+- **Nota (2026-10-09):** Este ADR documenta el **soporte del requisito "diseño nativo para nube" (punto 4a del PRA)**. El stack descrito (Render, Upstash Kafka, Neon PostgreSQL) **no corresponde a un ítem con nombre del Technology Radar Vol. 34**, por lo que **no cuenta como una de las seis tendencias** del proyecto. Las seis tendencias se listan en `docs/trends_selection.md`.
 
 ## Context
 Para el despliegue de SentinelAI en un entorno académico y de desarrollo inicial, no se cuenta con presupuesto para mantener servidores dedicados o clústeres de Kubernetes (EKS/GKE) activos las 24 horas del día. Sin embargo, el sistema debe ser capaz de procesar eventos en tiempo real mediante arquitectura orientada a eventos (*Event-Driven*).
