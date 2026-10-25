@@ -37,8 +37,9 @@ def default_app():
 
 def test_anomaly_path_runs_all_four_nodes(graph):
     critical_event = _event(log_level="CRITICAL")
+    cfg = {"configurable": {"thread_id": "test-anom"}}
 
-    result = graph.invoke({"raw_event": critical_event, "audit_logs": []})
+    result = graph.invoke({"raw_event": critical_event, "audit_logs": []}, config=cfg)
 
     assert result["is_anomaly"] is True
     assert result["sanitization_ok"] is True
@@ -51,8 +52,9 @@ def test_anomaly_path_runs_all_four_nodes(graph):
 
 def test_anomaly_path_produces_structured_diagnosis(graph):
     critical_event = _event(log_level="CRITICAL")
+    cfg = {"configurable": {"thread_id": "test-anom2"}}
 
-    result = graph.invoke({"raw_event": critical_event, "audit_logs": []})
+    result = graph.invoke({"raw_event": critical_event, "audit_logs": []}, config=cfg)
 
     assert isinstance(result["anomaly_output"], AnomalyAnalysisOutput)
     assert result["anomaly_output"].severity == "critical"
@@ -71,8 +73,9 @@ def test_normal_path_ends_early_at_analysis(graph):
         message="Payment processed successfully",
         metrics={"cpu": 35.0, "error_rate": 0.01},
     )
+    cfg = {"configurable": {"thread_id": "test-norm"}}
 
-    result = graph.invoke({"raw_event": info_event, "audit_logs": []})
+    result = graph.invoke({"raw_event": info_event, "audit_logs": []}, config=cfg)
 
     assert result["is_anomaly"] is False
     assert result["anomaly_output"].severity == "ok"
@@ -86,8 +89,9 @@ def test_normal_path_ends_early_at_analysis(graph):
 
 def test_analysis_evaluates_metrics_thresholds(graph):
     high_cpu_event = _event(log_level="WARNING", metrics={"cpu": 96.0, "error_rate": 0.05})
+    cfg = {"configurable": {"thread_id": "test-metrics"}}
 
-    result = graph.invoke({"raw_event": high_cpu_event, "audit_logs": []})
+    result = graph.invoke({"raw_event": high_cpu_event, "audit_logs": []}, config=cfg)
 
     assert result["is_anomaly"] is True
     assert result["anomaly_score"] >= 0.85
@@ -101,7 +105,8 @@ def test_zero_trust_rejects_empty_payload(graph):
         log_level="CRITICAL",
         message="",
     )
+    cfg = {"configurable": {"thread_id": "test-zt"}}
 
-    result = graph.invoke({"raw_event": empty_event, "audit_logs": []})
+    result = graph.invoke({"raw_event": empty_event, "audit_logs": []}, config=cfg)
 
     assert result["sanitization_ok"] is False

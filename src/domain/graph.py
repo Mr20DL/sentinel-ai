@@ -1,4 +1,5 @@
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
 
 from src.composition import build_default_components
 from src.domain.nodes import (
@@ -17,7 +18,7 @@ def should_continue(state: AgentState) -> str:
     return END
 
 
-def create_sentinel_graph(components: dict | None = None):
+def create_sentinel_graph(components: dict | None = None, checkpointer: MemorySaver | None = None):
     components = components or build_default_components()
     repository = components["repository"]
     notifier = components["notifier"]
@@ -52,7 +53,9 @@ def create_sentinel_graph(components: dict | None = None):
     workflow.add_edge("context_node", "response_node")
     workflow.add_edge("response_node", END)
 
-    return workflow.compile()
+    if checkpointer is None:
+        checkpointer = MemorySaver()
+    return workflow.compile(checkpointer=checkpointer)
 
 
 sentinel_app = create_sentinel_graph()

@@ -14,7 +14,10 @@ critical_event = TelemetryEvent(
 
 # 2. Ejecutamos el grafo con la velocidad de uv
 print("=== EJECUTANDO SENTINEL-AI ===")
-result = sentinel_app.invoke({"raw_event": critical_event, "audit_logs": []})
+result = sentinel_app.invoke(
+    {"raw_event": critical_event, "audit_logs": []},
+    config={"configurable": {"thread_id": "demo-run"}},
+)
 
 # 3. Inspeccionamos la auditoría acumulada en el Estado
 print("\n📋 HISTORIAL DE AUDITORÍA (Reducers en acción):")

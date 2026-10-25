@@ -20,7 +20,10 @@ def health() -> dict:
 
 @app.post("/events")
 def ingest_event(event: TelemetryEvent) -> JSONResponse:
-    result = engine.invoke({"raw_event": event, "audit_logs": []})
+    result = engine.invoke(
+        {"raw_event": event, "audit_logs": []},
+        config={"configurable": {"thread_id": f"event-{event.id}"}},
+    )
     diagnosis = result.get("diagnosis")
     return JSONResponse(
         {
