@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
@@ -13,6 +15,10 @@ app = FastAPI(
 engine = create_sentinel_graph()
 
 
+def _build_thread_id(event: TelemetryEvent) -> str:
+    return f"event-{event.id}-{uuid.uuid4().hex}"
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "sentinel-ai"}
@@ -22,7 +28,7 @@ def health() -> dict:
 def ingest_event(event: TelemetryEvent) -> JSONResponse:
     result = engine.invoke(
         {"raw_event": event, "audit_logs": []},
-        config={"configurable": {"thread_id": f"event-{event.id}"}},
+        config={"configurable": {"thread_id": _build_thread_id(event)}},
     )
     diagnosis = result.get("diagnosis")
     return JSONResponse(
@@ -47,4 +53,4 @@ def ingest_event(event: TelemetryEvent) -> JSONResponse:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("src.adapters.fastapi_app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("src.adapters.fastapi_app:app", host="127.0.0.1", port=8000, reload=True)

@@ -1,6 +1,3 @@
-from src.ports.repository import IncidentRepositoryPort
-
-
 class InMemoryRepository:
     """Repositorio en memoria para desarrollo y pruebas (adaptador del puerto).
 

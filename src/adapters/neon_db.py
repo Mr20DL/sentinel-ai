@@ -1,7 +1,5 @@
 import os
 
-from src.ports.repository import IncidentRepositoryPort
-
 
 class PostgresIncidentRepository:
     """Implementación PostgreSQL serverless (Neon) — requisito "cloud-native" (ADR-0003).

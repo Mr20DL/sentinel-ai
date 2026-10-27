@@ -1,17 +1,35 @@
-from pydantic import BaseModel, Field
 import operator
+from datetime import datetime
 from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing_extensions import TypedDict
+
+
+class TelemetryMetrics(BaseModel):
+    """Common telemetry metrics with tolerant raw values for zero-trust ingestion."""
+
+    model_config = ConfigDict(extra="allow")
+
+    cpu: float | int | str | None = None
+    error_rate: float | int | str | None = None
 
 
 class TelemetryEvent(BaseModel):
     id: int
     service_name: str
     environment: str = Field(default="production")
-    timestamp: str
+    timestamp: datetime
     log_level: str
     message: str
-    metrics: dict = Field(default_factory=dict)
+    metrics: TelemetryMetrics = Field(default_factory=TelemetryMetrics)
+
+    @field_validator("timestamp")
+    @classmethod
+    def _timestamp_must_be_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include timezone information")
+        return value
 
 
 class AnomalyAnalysisOutput(BaseModel):

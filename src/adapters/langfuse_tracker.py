@@ -1,6 +1,3 @@
-from src.ports.observability import ObservabilityPort
-
-
 class NoopTracker:
     """Adaptador de observabilidad NO-OP para desarrollo (ADR-0007).
 
