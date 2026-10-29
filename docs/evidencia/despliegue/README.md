@@ -2,7 +2,8 @@
 
 - **Fecha de captura:** 2026-10-29
 - **URL pública:** <https://sentinel-ai-46hj.onrender.com>
-- **Commit desplegado durante la captura:** `10b5a01`
+- **Commit inicial de la captura:** `10b5a01`
+- **Commit que agrega la ruta raíz:** `cda83b6`
 - **Modelo:** `openai/gpt-oss-120b` (Groq free tier)
 - **Proveedor LLM:** Groq
 - **Hosting:** Render Free con Docker
@@ -18,6 +19,7 @@
 | Zero trust | `04-zero-trust.txt` | Evento rechazado antes del análisis |
 | Payload inválido | `05-payload-invalido.txt` | `422 Unprocessable Entity` |
 | Ruta raíz local | `06-root-local.txt` | `200 OK`, metadatos del servicio |
+| Ruta raíz en Render | `07-root-render.txt` | `200 OK` tras desplegar `cda83b6` |
 
 ## Interpretación
 
@@ -37,9 +39,8 @@ El payload incompleto fue rechazado por FastAPI/Pydantic con `422`.
 
 ## Ruta raíz
 
-La ruta `GET /` se agregó después de la captura del despliegue. Su evidencia local está
-en `06-root-local.txt`; estará disponible en Render después del siguiente despliegue.
-Devuelve:
+La ruta `GET /` se validó localmente en `06-root-local.txt` y quedó desplegada en Render
+con el commit `cda83b6`; su salida pública está en `07-root-render.txt`. Devuelve:
 
 ```json
 {

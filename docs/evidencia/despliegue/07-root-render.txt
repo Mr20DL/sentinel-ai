@@ -1,0 +1,16 @@
+$url = 'https://sentinel-ai-46hj.onrender.com/'
+$deadline = (Get-Date).AddMinutes(6)
+while ((Get-Date) -lt $deadline) {
+    try {
+        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 60
+        "HTTP $($r.StatusCode)"
+        $r.Content
+        break
+    } catch {
+        "HTTP $($_.Exception.Response.StatusCode.value__) - esperando despliegue..."
+        Start-Sleep -Seconds 15
+    }
+}
+
+HTTP 200
+{"service":"sentinel-ai","version":"0.1.0","health":"/health","events":"/events","docs":"/docs"}
