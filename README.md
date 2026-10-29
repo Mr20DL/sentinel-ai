@@ -15,7 +15,13 @@ Plataforma inteligente de observabilidad y resolución de incidentes agéntica b
 
 ## 🚀 Roadmap de Desarrollo
 
-- [ ] **Fase 1:** Core Agéntico (LangGraph State & Nodes)
-- [ ] **Fase 2:** Puertos e Interfaces de Dominio
-- [ ] **Fase 3:** Adaptadores (FastAPI, Neon DB, Langfuse)
-- [ ] **Fase 4:** Integración Serverless & Despliegue en AWS
+- [x] **Fase 1:** Core agéntico, persistencia en memoria y pruebas
+- [x] **Fase 2:** Diagnóstico con LLM y structured output
+- [ ] **Fase 3:** RAG y enriquecimiento de contexto
+- [ ] **Fase 4:** Observabilidad y despliegue productivo
+
+## ☁️ Despliegue gratuito
+
+Guía paso a paso para usar Groq sin costo y publicar la API en Render Free:
+
+[`docs/guia_llm_gratis_y_despliegue.md`](docs/guia_llm_gratis_y_despliegue.md)

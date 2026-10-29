@@ -16,9 +16,11 @@ class _FakeChatModel:
     def __init__(self, result: RootCauseReport | dict) -> None:
         self.structured = _FakeStructuredModel(result)
         self.schema = None
+        self.method = None
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, method=None):
         self.schema = schema
+        self.method = method
         return self.structured
 
 
@@ -57,6 +59,7 @@ def test_langchain_diagnoser_returns_pydantic_report():
 
     assert result is expected
     assert fake_model.schema is RootCauseReport
+    assert fake_model.method == "function_calling"
     assert "payment-service" in fake_model.structured.prompt
     assert "past incident" in fake_model.structured.prompt
 
@@ -74,3 +77,18 @@ def test_langchain_diagnoser_validates_dict_output():
     result = diagnoser.generate(_event(), _analysis(), [])
 
     assert result == expected
+
+
+def test_langchain_diagnoser_passes_structured_method():
+    expected = RootCauseReport(
+        root_cause="Payment gateway connection pool exhausted",
+        severity="critical",
+        recommended_action="Restart the connection pool.",
+        runbook_steps=["1. Restart the connection pool."],
+    )
+    fake_model = _FakeChatModel(expected)
+    diagnoser = LangChainDiagnoser(fake_model, structured_method="json_mode")
+
+    diagnoser.generate(_event(), _analysis(), [])
+
+    assert fake_model.method == "json_mode"

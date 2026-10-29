@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: sentinel-ai
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: SENTINEL_LLM_PROVIDER
+        value: groq
+      - key: SENTINEL_LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: SENTINEL_LLM_STRUCTURED_METHOD
+        value: function_calling
+      - key: SENTINEL_LLM_TIMEOUT
+        value: "30"
+      - key: SENTINEL_LLM_MAX_RETRIES
+        value: "3"
+      - key: GROQ_API_KEY
+        sync: false
