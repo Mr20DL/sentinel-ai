@@ -1,0 +1,34 @@
+$body = @{
+  id = 3003
+  service_name = 'checkout-service'
+  environment = 'production'
+  timestamp = '2026-10-28T17:12:00Z'
+  log_level = 'INFO'
+  message = 'Checkout completed successfully.'
+  metrics = @{ cpu = 12.0; error_rate = 0.01 }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri https://sentinel-ai-46hj.onrender.com/events -ContentType 'application/json' -Body $body | ConvertTo-Json -Depth 20
+
+{
+    "trace_id":  "trace-3003-checkout-service",
+    "sanitization_ok":  true,
+    "is_anomaly":  false,
+    "anomaly_score":  0.1,
+    "anomaly_output":  {
+                           "is_anomaly":  false,
+                           "anomaly_score":  0.1,
+                           "severity":  "ok",
+                           "reasoning":  "Event matches expected operational behavior."
+                       },
+    "historical_context":  [
+
+                           ],
+    "diagnosis":  null,
+    "notification_sent":  null,
+    "audit_logs":  [
+                       "[IngestionNode] Received event from service 'checkout-service'.",
+                       "[IngestionNode] Payload de telemetría validado y limpio.",
+                       "[AnalysisNode] Evaluated anomaly status: False (score: 0.10)."
+                   ]
+}

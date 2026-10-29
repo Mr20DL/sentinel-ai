@@ -1,0 +1,50 @@
+$body = @{
+  id = 3002
+  service_name = 'payment-service'
+  environment = 'production'
+  timestamp = '2026-10-28T17:10:00Z'
+  log_level = 'CRITICAL'
+  message = 'Connection failure to payment gateway API.'
+  metrics = @{ cpu = 95.5; error_rate = 0.45 }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri https://sentinel-ai-46hj.onrender.com/events -ContentType 'application/json' -Body $body | ConvertTo-Json -Depth 20
+
+{
+    "trace_id":  "trace-3002-payment-service",
+    "sanitization_ok":  true,
+    "is_anomaly":  true,
+    "anomaly_score":  0.9,
+    "anomaly_output":  {
+                           "is_anomaly":  true,
+                           "anomaly_score":  0.9,
+                           "severity":  "critical",
+                           "reasoning":  "Log level 'CRITICAL' is critical/high severity."
+                       },
+    "historical_context":  [
+                               "2026-09-01: Connection failure to payment gateway API resolved by restarting pool.",
+                               "2026-06-15: High latency in payment-service caused by DB connection exhaustion.",
+                               "2025-11-02: Partial outage after deploy; rolled back and enlarged connection pool."
+                           ],
+    "diagnosis":  {
+                      "root_cause":  "Exhausted or misconfigured connection pool to the external payment gateway causing connection failures under high CPU load.",
+                      "severity":  "critical",
+                      "recommended_action":  "Restart the payment gateway connection pool and verify gateway endpoint health; if issue persists, increase pool size and check network connectivity.",
+                      "runbook_steps":  [
+                                            "1. Verify gateway endpoint reachability (ping/trace route).",
+                                            "2. Check current connection pool metrics (active, idle, max).",
+                                            "3. Restart the payment-service connection pool or the service if needed.",
+                                            "4. Monitor CPU and error_rate for stabilization.",
+                                            "5. If errors continue, increase pool max connections and adjust timeout settings.",
+                                            "6. Document changes and update alert thresholds."
+                                        ]
+                  },
+    "notification_sent":  true,
+    "audit_logs":  [
+                       "[IngestionNode] Received event from service 'payment-service'.",
+                       "[IngestionNode] Payload de telemetría validado y limpio.",
+                       "[AnalysisNode] Evaluated anomaly status: True (score: 0.90).",
+                       "[ContextNode] Retrieved 3 historical records for 'payment-service'.",
+                       "[ResponseNode] Diagnosis and recommendation generated."
+                   ]
+}

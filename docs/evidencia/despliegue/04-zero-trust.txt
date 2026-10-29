@@ -1,0 +1,28 @@
+$body = @{
+  id = 3004
+  service_name = 'payment-service'
+  environment = 'production'
+  timestamp = '2026-10-28T17:14:00Z'
+  log_level = 'CRITICAL'
+  message = ''
+  metrics = @{ cpu = 99.0; error_rate = 0.99 }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri https://sentinel-ai-46hj.onrender.com/events -ContentType 'application/json' -Body $body | ConvertTo-Json -Depth 20
+
+{
+    "trace_id":  "trace-3004-payment-service",
+    "sanitization_ok":  false,
+    "is_anomaly":  null,
+    "anomaly_score":  null,
+    "anomaly_output":  null,
+    "historical_context":  [
+
+                           ],
+    "diagnosis":  null,
+    "notification_sent":  null,
+    "audit_logs":  [
+                       "[IngestionNode] Received event from service 'payment-service'.",
+                       "[IngestionNode] Payload de telemetría vacío: evento rechazado en la frontera."
+                   ]
+}

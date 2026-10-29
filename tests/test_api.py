@@ -11,6 +11,16 @@ def test_health_endpoint():
     assert response.json()["status"] == "ok"
 
 
+def test_root_endpoint_describes_service():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["service"] == "sentinel-ai"
+    assert body["health"] == "/health"
+    assert body["events"] == "/events"
+
+
 def test_ingest_anomaly_event():
     payload = {
         "id": 10,

@@ -19,6 +19,17 @@ def _build_thread_id(event: TelemetryEvent) -> str:
     return f"event-{event.id}-{uuid.uuid4().hex}"
 
 
+@app.get("/")
+def root() -> dict:
+    return {
+        "service": "sentinel-ai",
+        "version": "0.1.0",
+        "health": "/health",
+        "events": "/events",
+        "docs": "/docs",
+    }
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "sentinel-ai"}

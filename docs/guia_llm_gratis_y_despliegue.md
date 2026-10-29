@@ -108,6 +108,12 @@ Verifica el health check:
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
+La ruta raíz devuelve metadatos y enlaces utiles:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/
+```
+
 Prueba un incidente real:
 
 ```powershell
@@ -222,10 +228,11 @@ Cuando Render termine, tendras una URL similar a:
 https://sentinel-ai-xxxx.onrender.com
 ```
 
-Prueba el health check:
+Prueba el health check y la ruta raiz:
 
 ```powershell
 Invoke-RestMethod https://sentinel-ai-xxxx.onrender.com/health
+Invoke-RestMethod https://sentinel-ai-xxxx.onrender.com/
 ```
 
 La primera peticion puede tardar cerca de un minuto si el servicio estaba dormido.
@@ -352,7 +359,16 @@ uv run mypy src
 uv run bandit -r src -q
 ```
 
-## 11. Checklist para la demo
+## 11. Evidencia del despliegue
+
+La evidencia de la primera publicacion en Render esta en:
+
+[`docs/evidencia/despliegue/README.md`](evidencia/despliegue/README.md)
+
+Incluye salidas de health check, incidente critico, evento normal, rechazo zero trust,
+payload invalido y la ruta raiz local.
+
+## 12. Checklist para la demo
 
 - [ ] `GET /health` responde `{"status": "ok"}` en Render.
 - [ ] `POST /events` con un incidente critico devuelve `is_anomaly: true`.

@@ -1,0 +1,6 @@
+$ Invoke-RestMethod https://sentinel-ai-46hj.onrender.com/health | ConvertTo-Json -Depth 5
+
+{
+    "status":  "ok",
+    "service":  "sentinel-ai"
+}

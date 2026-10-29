@@ -1,0 +1,37 @@
+Invoke-RestMethod -Method Post -Uri https://sentinel-ai-46hj.onrender.com/events -ContentType 'application/json' -Body '{"id":"no-amount"}'
+
+HTTP 422
+{
+  "detail": [
+    {
+      "type": "int_parsing",
+      "loc": ["body", "id"],
+      "msg": "Input should be a valid integer, unable to parse string as an integer",
+      "input": "no-amount"
+    },
+    {
+      "type": "missing",
+      "loc": ["body", "service_name"],
+      "msg": "Field required",
+      "input": {"id": "no-amount"}
+    },
+    {
+      "type": "missing",
+      "loc": ["body", "timestamp"],
+      "msg": "Field required",
+      "input": {"id": "no-amount"}
+    },
+    {
+      "type": "missing",
+      "loc": ["body", "log_level"],
+      "msg": "Field required",
+      "input": {"id": "no-amount"}
+    },
+    {
+      "type": "missing",
+      "loc": ["body", "message"],
+      "msg": "Field required",
+      "input": {"id": "no-amount"}
+    }
+  ]
+}
