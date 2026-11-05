@@ -1,8 +1,17 @@
 import pytest
 
+from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
 from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
+from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langchain_diagnoser import LangChainDiagnoser
-from src.composition import _load_llm_settings, build_diagnosis_adapter
+from src.adapters.neon_db import PostgresIncidentRepository
+from src.composition import (
+    _load_embedding_settings,
+    _load_llm_settings,
+    build_diagnosis_adapter,
+    build_embedding_adapter,
+    build_repository,
+)
 
 _ENV_VARS = (
     "SENTINEL_LLM_PROVIDER",
@@ -19,6 +28,12 @@ _ENV_VARS = (
     "OPENAI_BASE_URL",
     "OLLAMA_API_KEY",
     "OLLAMA_BASE_URL",
+    "DATABASE_URL",
+    "SENTINEL_EMBEDDING_PROVIDER",
+    "SENTINEL_EMBEDDING_MODEL",
+    "SENTINEL_EMBEDDING_API_KEY",
+    "SENTINEL_EMBEDDING_DIMENSIONS",
+    "SENTINEL_EMBEDDING_TIMEOUT",
 )
 
 
@@ -195,3 +210,80 @@ def test_invalid_numeric_settings_are_rejected(monkeypatch, name, value):
 
     with pytest.raises(ValueError, match=name):
         _load_llm_settings()
+
+
+def test_default_embedding_provider_is_disabled(monkeypatch):
+    _clear_llm_env(monkeypatch)
+
+    settings = _load_embedding_settings()
+
+    assert settings.provider == "disabled"
+    assert settings.dimensions == 384
+    assert build_embedding_adapter() is None
+    assert isinstance(build_repository(), InMemoryRepository)
+
+
+def test_gemini_embedding_requires_api_key(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_EMBEDDING_PROVIDER", "gemini")
+
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        build_embedding_adapter()
+
+
+def test_gemini_embedding_builds_adapter(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    settings = _load_embedding_settings()
+    adapter = build_embedding_adapter()
+
+    assert settings.model == "gemini-embedding-2"
+    assert settings.dimensions == 384
+    assert isinstance(adapter, GeminiEmbeddingAdapter)
+    assert adapter.dimensions == 384
+
+
+def test_unknown_embedding_provider_is_rejected(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_EMBEDDING_PROVIDER", "local")
+
+    with pytest.raises(ValueError, match="Unsupported SENTINEL_EMBEDDING_PROVIDER"):
+        build_embedding_adapter()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("SENTINEL_EMBEDDING_DIMENSIONS", "not-a-number"),
+        ("SENTINEL_EMBEDDING_DIMENSIONS", "0"),
+        ("SENTINEL_EMBEDDING_TIMEOUT", "0"),
+    ],
+    ids=["dimensions-not-number", "dimensions-zero", "timeout-zero"],
+)
+def test_invalid_embedding_settings_are_rejected(monkeypatch, name, value):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=name):
+        _load_embedding_settings()
+
+
+def test_database_url_requires_embedding_provider(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/test")
+
+    with pytest.raises(RuntimeError, match="SENTINEL_EMBEDDING_PROVIDER"):
+        build_repository()
+
+
+def test_database_url_with_gemini_builds_postgres_repository(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/test")
+    monkeypatch.setenv("SENTINEL_EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    repository = build_repository()
+
+    assert isinstance(repository, PostgresIncidentRepository)

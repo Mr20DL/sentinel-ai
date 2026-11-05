@@ -1,8 +1,5 @@
 class InMemoryRepository:
-    """Repositorio en memoria para desarrollo y pruebas (adaptador del puerto).
-
-    Reemplazable por PostgresIncidentRepository (Neon) en la Fase 3 (RAG).
-    """
+    """Repositorio en memoria para desarrollo, tests y fallback sin DATABASE_URL."""
 
     DEFAULT_INCIDENTS: dict[str, list[str]] = {
         "payment-service": [
@@ -21,5 +18,7 @@ class InMemoryRepository:
     def __init__(self, incidents: dict[str, list[str]] | None = None) -> None:
         self._incidents = incidents or dict(self.DEFAULT_INCIDENTS)
 
-    def search_incidents(self, service_name: str, limit: int = 5) -> list[str]:
+    def search_incidents(
+        self, service_name: str, query: str, limit: int = 5
+    ) -> list[str]:
         return self._incidents.get(service_name, [])[:limit]

@@ -13,6 +13,7 @@ RUN useradd --create-home --uid 10001 appuser
 
 COPY pyproject.toml uv.lock ./
 COPY src ./src
+COPY scripts ./scripts
 
 RUN uv sync --frozen --no-dev
 

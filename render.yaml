@@ -20,3 +20,15 @@ services:
         value: "3"
       - key: GROQ_API_KEY
         sync: false
+      - key: SENTINEL_EMBEDDING_PROVIDER
+        value: gemini
+      - key: SENTINEL_EMBEDDING_MODEL
+        value: gemini-embedding-2
+      - key: SENTINEL_EMBEDDING_DIMENSIONS
+        value: "384"
+      - key: SENTINEL_EMBEDDING_TIMEOUT
+        value: "20"
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

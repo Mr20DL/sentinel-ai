@@ -3,10 +3,14 @@ from dataclasses import dataclass
 from typing import cast
 
 from src.adapters.console_notifier import ConsoleNotifier
+from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
 from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
 from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langfuse_tracker import NoopTracker
+from src.adapters.neon_db import PostgresIncidentRepository
 from src.ports.diagnosis import DiagnosisPort
+from src.ports.embeddings import EmbeddingPort
+from src.ports.repository import IncidentRepositoryPort
 
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str | None]] = {
     "groq": ("openai/gpt-oss-120b", "https://api.groq.com/openai/v1"),
@@ -37,6 +41,15 @@ class LLMSettings:
     structured_method: str
     timeout: float
     max_retries: int
+
+
+@dataclass(frozen=True)
+class EmbeddingSettings:
+    provider: str
+    model: str
+    api_key: str
+    dimensions: int
+    timeout: float
 
 
 def _env_float(name: str, default: float) -> float:
@@ -131,6 +144,81 @@ def _load_llm_settings() -> LLMSettings:
     )
 
 
+def _load_embedding_settings() -> EmbeddingSettings:
+    provider = os.getenv("SENTINEL_EMBEDDING_PROVIDER", "disabled").strip().lower()
+    dimensions = _env_int("SENTINEL_EMBEDDING_DIMENSIONS", 384)
+    timeout = _env_float("SENTINEL_EMBEDDING_TIMEOUT", 20.0)
+    if dimensions <= 0:
+        raise ValueError("SENTINEL_EMBEDDING_DIMENSIONS must be greater than zero")
+    if timeout <= 0:
+        raise ValueError("SENTINEL_EMBEDDING_TIMEOUT must be greater than zero")
+
+    if provider in {"", "disabled", "heuristic", "none"}:
+        return EmbeddingSettings(
+            provider="disabled",
+            model="",
+            api_key="",
+            dimensions=dimensions,
+            timeout=timeout,
+        )
+    if provider != "gemini":
+        raise ValueError(f"Unsupported SENTINEL_EMBEDDING_PROVIDER: {provider}")
+
+    model = (
+        os.getenv("SENTINEL_EMBEDDING_MODEL", "gemini-embedding-2").strip()
+        or "gemini-embedding-2"
+    )
+    api_key = os.getenv("SENTINEL_EMBEDDING_API_KEY", "").strip()
+    if not api_key:
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is required when SENTINEL_EMBEDDING_PROVIDER=gemini"
+        )
+
+    return EmbeddingSettings(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        dimensions=dimensions,
+        timeout=timeout,
+    )
+
+
+def build_embedding_adapter() -> EmbeddingPort | None:
+    """Build the embedding adapter, or None when RAG is disabled."""
+    settings = _load_embedding_settings()
+    if settings.provider == "disabled":
+        return None
+    return GeminiEmbeddingAdapter(
+        api_key=settings.api_key,
+        model=settings.model,
+        dimensions=settings.dimensions,
+        timeout=settings.timeout,
+    )
+
+
+def load_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required for PostgreSQL persistence")
+    return database_url
+
+
+def build_repository() -> IncidentRepositoryPort:
+    """Select in-memory or Neon/pgvector persistence from the environment."""
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        return InMemoryRepository()
+
+    embedder = build_embedding_adapter()
+    if embedder is None:
+        raise RuntimeError(
+            "SENTINEL_EMBEDDING_PROVIDER must be gemini when DATABASE_URL is configured"
+        )
+    return PostgresIncidentRepository(database_url, embedder)
+
+
 def build_diagnosis_adapter() -> DiagnosisPort:
     """Select the diagnosis provider from the environment (composition root)."""
     settings = _load_llm_settings()
@@ -152,7 +240,7 @@ def build_diagnosis_adapter() -> DiagnosisPort:
 def build_default_components() -> dict:
     """Composition root: adaptadores por defecto para desarrollo (hexagonal)."""
     return {
-        "repository": InMemoryRepository(),
+        "repository": build_repository(),
         "notifier": ConsoleNotifier(),
         "tracker": NoopTracker(),
         "diagnoser": build_diagnosis_adapter(),

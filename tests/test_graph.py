@@ -12,7 +12,11 @@ from src.domain.graph import (
     should_continue,
     should_process,
 )
-from src.domain.nodes import create_ingestion_node, create_response_node
+from src.domain.nodes import (
+    create_context_node,
+    create_ingestion_node,
+    create_response_node,
+)
 from src.domain.state import (
     AnomalyAnalysisOutput,
     RootCauseReport,
@@ -388,3 +392,54 @@ def test_graph_accepts_custom_checkpointer():
     result = graph.invoke({"raw_event": event, "audit_logs": []}, config=cfg)
 
     assert result["is_anomaly"] is False
+
+
+class _RecordingRepository:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, int]] = []
+
+    def search_incidents(
+        self, service_name: str, query: str, limit: int = 5
+    ) -> list[str]:
+        self.calls.append((service_name, query, limit))
+        return ["past incident"]
+
+
+class _FailingRepository:
+    def search_incidents(
+        self, service_name: str, query: str, limit: int = 5
+    ) -> list[str]:
+        raise RuntimeError("database unavailable")
+
+
+def test_context_node_passes_event_message_to_repository():
+    repository = _RecordingRepository()
+    node = create_context_node(repository)
+
+    result = node(
+        {
+            "raw_event": _event(log_level="CRITICAL", message="database is down"),
+            "audit_logs": [],
+        }
+    )
+
+    assert repository.calls == [
+        ("payment-service", "database is down", 3)
+    ]
+    assert result["historical_context"] == ["past incident"]
+    assert "Retrieved 1 historical records" in result["audit_logs"][0]
+
+
+def test_context_node_degrades_when_repository_fails():
+    node = create_context_node(_FailingRepository())
+
+    result = node(
+        {
+            "raw_event": _event(log_level="CRITICAL", message="database is down"),
+            "audit_logs": [],
+        }
+    )
+
+    assert result["historical_context"] == []
+    assert "continuing without RAG" in result["audit_logs"][0]
+    assert "RuntimeError" in result["audit_logs"][0]

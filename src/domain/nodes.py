@@ -124,13 +124,23 @@ def create_analysis_node():
 def create_context_node(repository: IncidentRepositoryPort):
     def context_node(state: AgentState) -> dict:
         event = state["raw_event"]
-        history = repository.search_incidents(event.service_name, limit=3)
-        return {
-            "historical_context": history,
-            "audit_logs": [
+        try:
+            history = repository.search_incidents(
+                event.service_name, event.message, limit=3
+            )
+            audit_entry = (
                 f"[ContextNode] Retrieved {len(history)} historical records "
                 f"for '{event.service_name}'."
-            ],
+            )
+        except Exception as exc:
+            history = []
+            audit_entry = (
+                "[ContextNode] Historical context unavailable "
+                f"({type(exc).__name__}); continuing without RAG."
+            )
+        return {
+            "historical_context": history,
+            "audit_logs": [audit_entry],
         }
 
     return context_node

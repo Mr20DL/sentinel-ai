@@ -4,7 +4,7 @@ Esta guia explica como reemplazar el diagnostico heuristico de SentinelAI por un
 real sin gastar dinero y como publicar la API FastAPI en la nube con costo operativo de
 $0.00.
 
-> Fecha de referencia: 2026-10-28. Los free tiers cambian con frecuencia. Verifica los
+> Fecha de referencia: 2026-11-02. Los free tiers cambian con frecuencia. Verifica los
 > limites y modelos vigentes en los enlaces oficiales antes de una demo o entrega.
 
 ## 1. Punto de partida
@@ -19,16 +19,22 @@ La Fase 2 ya tiene implementado:
 Si no configuras nada, `SENTINEL_LLM_PROVIDER=heuristic` y el sistema usa el diagnostico
 deterministico. Eso es util para tests, pero no es un modelo de lenguaje real.
 
+La Fase 3 agrega:
+
+- `EmbeddingPort` en `src/ports/embeddings.py`.
+- `GeminiEmbeddingAdapter` con `gemini-embedding-2` y 384 dimensiones.
+- `PostgresIncidentRepository` con Neon PostgreSQL y `pgvector`.
+- Seed idempotente en `scripts/seed_incidents.py`.
+- Busqueda semantica en `context_node` usando el mensaje del evento.
+
 Lo que sigue sin implementarse de fases posteriores:
 
-- Persistencia real en Neon/PostgreSQL (`PostgresIncidentRepository` es un stub).
-- RAG con pgvector o ChromaDB.
 - Observabilidad real con Langfuse (`NoopTracker` no envia trazas).
 - Consumo de Upstash Kafka.
 - Autenticacion y rate limiting del endpoint publico.
 
-Por eso, al desplegar hoy tendras una API funcional con LLM real, pero con repositorio en
-memoria y trazas no-op. Al reiniciar el servicio se pierde el estado en memoria.
+Si `DATABASE_URL` no esta configurado, la API sigue usando `InMemoryRepository` y el
+estado se pierde al reiniciar. Para persistencia real, configura Neon y ejecuta el seed.
 
 ## 2. Stack gratuito recomendado
 
@@ -38,7 +44,8 @@ memoria y trazas no-op. Al reiniciar el servicio se pierde el estado en memoria.
 | LLM de respaldo | Google Gemini API | Tokens gratuitos por modelo, sin tarjeta | Puede usar contenido para mejorar sus productos |
 | LLM alternativo | OpenRouter `:free` | 20 RPM y 50 req/dia (1.000/dia con $10 de credito historico) | Limite diario bajo y modelos rotativos |
 | Hosting API | Render Free | 750 horas/mes, sin tarjeta | Duerme a los 15 min y tarda ~1 min en despertar |
-| Base de datos futura | Neon PostgreSQL | Plan gratuito con auto-suspend | Fase 3; el codigo actual usa memoria |
+| Base de datos RAG | Neon PostgreSQL + pgvector | Plan gratuito con auto-suspend | Fase 3; requiere `DATABASE_URL` |
+| Embeddings | Gemini Embeddings | Free tier sin costo | Fase 3; requiere `GEMINI_API_KEY` |
 | Kafka futuro | Upstash Kafka | Plan gratuito por request | Fase 4; aun no integrado |
 | Observabilidad futura | Langfuse Cloud | Plan gratuito | Fase 4; aun no integrado |
 
@@ -48,6 +55,8 @@ Referencias:
 - Groq models: <https://console.groq.com/docs/models>
 - Gemini OpenAI compatibility: <https://ai.google.dev/gemini-api/docs/openai>
 - Gemini rate limits: <https://ai.google.dev/gemini-api/docs/rate-limits>
+- Gemini embeddings: <https://ai.google.dev/gemini-api/docs/embeddings>
+- Gemini pricing: <https://ai.google.dev/gemini-api/docs/pricing>
 - OpenRouter limits: <https://openrouter.ai/docs/api-reference/limits>
 - Render free tier: <https://render.com/docs/free>
 
@@ -354,7 +363,7 @@ $env:PYTHONUTF8="1"
 uv sync --extra dev
 uv run pytest -v
 uv run pytest --cov=src --cov-report=term-missing
-uv run ruff check src tests
+uv run ruff check src tests scripts
 uv run mypy src
 uv run bandit -r src -q
 ```
@@ -368,13 +377,94 @@ La evidencia de la primera publicacion en Render esta en:
 Incluye salidas de health check, incidente critico, evento normal, rechazo zero trust,
 payload invalido y la ruta raiz local.
 
-## 12. Checklist para la demo
+## 12. Fase 3: RAG con Neon y Gemini
+
+### 12.1 Crear la base de datos
+
+1. Crea un proyecto en <https://neon.tech/>.
+2. Copia la cadena de conexion PostgreSQL. Debe incluir `sslmode=require`.
+3. Guardala como `DATABASE_URL` en `.env` y en Render. No la subas al repositorio.
+
+Neon ya soporta la extension `pgvector`; el seed ejecuta `CREATE EXTENSION IF NOT EXISTS
+vector`. La tabla se crea con `embedding vector(384)` y un indice HNSW para similitud
+coseno.
+
+### 12.2 Crear la API key de Gemini
+
+1. Entra a <https://aistudio.google.com/app/apikey>.
+2. Crea una API key y guardala como `GEMINI_API_KEY`.
+3. No reutilices la key de Groq: son proveedores distintos.
+
+### 12.3 Configuracion local
+
+Agrega a `.env`:
+
+```dotenv
+DATABASE_URL=postgresql://usuario:password@host/neondb?sslmode=require
+SENTINEL_EMBEDDING_PROVIDER=gemini
+SENTINEL_EMBEDDING_MODEL=gemini-embedding-2
+SENTINEL_EMBEDDING_DIMENSIONS=384
+SENTINEL_EMBEDDING_TIMEOUT=20
+GEMINI_API_KEY=tu_key_de_gemini
+```
+
+Con `DATABASE_URL` y el proveedor `gemini`, `composition.py` construye
+`PostgresIncidentRepository`. Si falta cualquiera de los dos, la API falla al arrancar
+para no ocultar una mala configuracion. Sin `DATABASE_URL`, usa `InMemoryRepository`:
+tener solo `GEMINI_API_KEY` no activa el RAG ni persiste incidentes.
+
+### 12.4 Crear el esquema y sembrar incidentes
+
+```powershell
+uv run --env-file .env python -m scripts.seed_incidents
+```
+
+El script es idempotente: crea la extension y la tabla, y actualiza los embeddings con
+`ON CONFLICT`. Verifica el total de filas:
+
+```powershell
+uv run --env-file .env python -c "from src.composition import build_embedding_adapter, load_database_url; from src.adapters.neon_db import PostgresIncidentRepository; print(PostgresIncidentRepository(load_database_url(), build_embedding_adapter()).count_incidents())"
+```
+
+### 12.5 Probar la integracion real
+
+La suite normal usa un repositorio falso. Para probar Neon y Gemini de verdad:
+
+```powershell
+$env:SENTINEL_RAG_INTEGRATION="1"
+uv run --env-file .env pytest tests/test_rag_integration.py -v
+```
+
+La prueba inserta un incidente temporal, busca por similitud y lo elimina al terminar.
+Ejecutala sola, no junto con la suite normal, para que `SENTINEL_RAG_INTEGRATION=1` y
+las credenciales reales no afecten a los demas tests.
+
+### 12.6 Configurar Render
+
+En el dashboard de Render agrega estas variables al servicio:
+
+```dotenv
+DATABASE_URL=postgresql://...
+SENTINEL_EMBEDDING_PROVIDER=gemini
+SENTINEL_EMBEDDING_MODEL=gemini-embedding-2
+SENTINEL_EMBEDDING_DIMENSIONS=384
+GEMINI_API_KEY=...
+```
+
+Despues del despliegue, dispara un incidente critico. Si Neon esta sembrado,
+`historical_context` se llena y el diagnostico de Groq recibe esos antecedentes. Si la
+busqueda falla, el grafo continua sin RAG y deja constancia en `audit_logs`.
+
+## 13. Checklist para la demo
 
 - [ ] `GET /health` responde `{"status": "ok"}` en Render.
 - [ ] `POST /events` con un incidente critico devuelve `is_anomaly: true`.
 - [ ] `diagnosis.root_cause` no es el texto heuristico por defecto.
 - [ ] `diagnosis.runbook_steps` tiene al menos un paso.
 - [ ] `audit_logs` confirma que se genero el diagnostico.
+- [ ] `historical_context` proviene de Neon/pgvector, no de `DEFAULT_INCIDENTS`.
+- [ ] `python -m scripts.seed_incidents` ya se ejecuto y el conteo de filas es mayor que cero.
 - [ ] La key no aparece en el repositorio ni en capturas.
 - [ ] Sabes que hacer si aparece `429` o si Render esta dormido.
-- [ ] Puedes explicar que Neon, Kafka y Langfuse aun son trabajo de fases posteriores.
+- [ ] Puedes explicar que Neon/pgvector y Gemini Embeddings ya estan activos; Kafka y
+      Langfuse siguen pendientes.
