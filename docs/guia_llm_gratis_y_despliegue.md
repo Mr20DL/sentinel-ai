@@ -455,6 +455,10 @@ Despues del despliegue, dispara un incidente critico. Si Neon esta sembrado,
 `historical_context` se llena y el diagnostico de Groq recibe esos antecedentes. Si la
 busqueda falla, el grafo continua sin RAG y deja constancia en `audit_logs`.
 
+Validado en Render el 2026-11-05: un incidente de prueba recupero el marcador sembrado
+en Neon y `audit_logs` reporto `[ContextNode] Retrieved 1 historical records`. La fila
+temporal se elimino despues de la prueba.
+
 ## 13. Checklist para la demo
 
 - [ ] `GET /health` responde `{"status": "ok"}` en Render.

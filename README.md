@@ -17,7 +17,7 @@ Plataforma inteligente de observabilidad y resolución de incidentes agéntica b
 
 - [x] **Fase 1:** Core agéntico, persistencia en memoria y pruebas
 - [x] **Fase 2:** Diagnóstico con LLM y structured output
-- [ ] **Fase 3:** RAG y enriquecimiento de contexto (implementado; falta validar Neon/Gemini en Render)
+- [x] **Fase 3:** RAG y enriquecimiento de contexto con Neon/pgvector y Gemini
 - [ ] **Fase 4:** Observabilidad y despliegue productivo
 
 ## ☁️ Despliegue gratuito
