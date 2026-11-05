@@ -68,3 +68,7 @@ Fase 4: Observabilidad y Despliegue
    Traza distribuida de cada nodo con OpenTelemetry / LangSmith.
 
    Endpoint en FastAPI para ingerir telemetría vía Webhook / HTTP POST.
+
+   Ingesta de logs OTLP desde OpenTelemetry Demo (MVP logs-only con filtro, dedup y
+   límite de eventos por request). Métricas y trazas OTLP quedan para una iteración
+   posterior.

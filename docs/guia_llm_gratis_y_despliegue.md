@@ -280,8 +280,9 @@ Invoke-RestMethod `
 - Nunca subas `.env`, keys, tokens ni payloads reales al repositorio.
 - En Render, usa variables de entorno secretas; no las escribas en `render.yaml`.
 - Rota la key inmediatamente si se filtra.
-- El endpoint `/events` no tiene autenticacion todavia. No lo expongas a Internet con
-  datos sensibles.
+- `/events` y `/ingest/otel/v1/logs` aceptan `X-Ingest-Key` solo si defines
+  `SENTINEL_INGEST_API_KEY`. Sin esa variable no hay autenticacion; no los expongas a
+  Internet con datos sensibles. En Render, define la variable para la demo.
 - No envies secretos, credenciales ni datos personales en `message`, `metrics` ni
   `historical_context`.
 - Groq indica que no usa tus entradas/salidas para entrenamiento salvo que lo permitas,
@@ -459,7 +460,114 @@ Validado en Render el 2026-11-05: un incidente de prueba recupero el marcador se
 en Neon y `audit_logs` reporto `[ContextNode] Retrieved 1 historical records`. La fila
 temporal se elimino despues de la prueba.
 
-## 13. Checklist para la demo
+## 13. Fase 4: ingesta desde OpenTelemetry Demo
+
+Esta integracion usa logs reales de OpenTelemetry Demo. El Collector reenvia los logs
+por OTLP HTTP JSON a SentinelAI; el dominio sigue recibiendo solo `TelemetryEvent`.
+
+```text
+OpenTelemetry Demo -> OTel Collector -> /ingest/otel/v1/logs -> ingestion_node -> grafo
+```
+
+### 13.1 Requisitos
+
+- Docker Desktop activo.
+- OpenTelemetry Demo clonado y funcionando.
+- SentinelAI ejecutandose en el host, no dentro de Render Free.
+
+### 13.2 Configurar SentinelAI
+
+Agrega a `.env` o exporta en la terminal:
+
+```dotenv
+SENTINEL_INGEST_API_KEY=demo-secret
+SENTINEL_OTEL_MAX_EVENTS=3
+SENTINEL_OTEL_DEDUP_TTL=60
+```
+
+`SENTINEL_OTEL_MAX_EVENTS` limita cuantos eventos procesa cada request.
+`SENTINEL_OTEL_DEDUP_TTL` evita repetir el mismo error del mismo servicio durante esa
+ventana de segundos. `SENTINEL_INGEST_API_KEY` es opcional; si esta definida, los
+endpoints de ingesta exigen el header `X-Ingest-Key`.
+
+Si defines la key, pasa la misma variable al contenedor del Collector en un
+`compose.override.yaml` dentro del demo; de lo contrario el header viaja vacio y
+recibes `401`:
+
+```yaml
+services:
+  otel-collector:
+    environment:
+      SENTINEL_INGEST_API_KEY: ${SENTINEL_INGEST_API_KEY}
+```
+
+Inicia la API escuchando en todas las interfaces:
+
+```powershell
+uv run --env-file .env uvicorn src.adapters.fastapi_app:app --host 0.0.0.0 --port 8000
+```
+
+### 13.3 Conectar el Collector
+
+Copia `integrations/otel-demo/otelcol-config-extras.yml` sobre el archivo equivalente
+del demo:
+
+```powershell
+Copy-Item integrations/otel-demo/otelcol-config-extras.yml `
+  C:\ruta\opentelemetry-demo\src\otel-collector\otelcol-config-extras.yml
+```
+
+El archivo usa `http://host.docker.internal:8000/ingest/otel`, que en Docker Desktop
+apunta al host. Si usas Linux, reemplaza el host por la IP del host o configura
+`extra_hosts`. Mantiene `encoding: json` y `compression: none` porque el endpoint no
+descomprime gzip. Tambien agrega `filter/sentinelai_noise` para no reenviar los errores
+internos del propio Collector (`service.name=otelcol-contrib`) y conserva los
+procesadores base de logs (`resource_detection`, `memory_limiter` y
+`transform/sanitize_logs`).
+
+Inicia el demo (la primera ejecucion puede tardar varios minutos):
+
+```powershell
+Set-Location C:\ruta\opentelemetry-demo
+docker compose -f compose.yaml -f compose.override.yaml up -d --quiet-pull
+```
+
+### 13.4 Generar un incidente
+
+Activa el fallo de pago del demo cambiando `paymentFailure.defaultVariant` a `"100%"` en
+`src/flagd/demo.flagd.json`, o usa la UI de Flagd en `http://localhost:4000`.
+
+El fallo del servicio `payment` se registra como `WARN`, por lo que el normalizador lo
+filtra. La senal que si llega a SentinelAI es el log critico que emite
+`load-generator` cuando el checkout falla. No esperes un evento con
+`service_name=payment` por este flag.
+
+Verifica que el Collector reenvia logs y que SentinelAI responde `200`:
+
+```powershell
+docker logs otel-collector --tail 50
+docker logs sentinel-ai-otel --tail 50
+```
+
+En una prueba directa al endpoint veras un resumen como
+`{"accepted": 1, "processed": 1, "failed": 0}`; el Collector solo muestra el `200`.
+
+### 13.5 Limites y siguientes pasos
+
+- Solo se procesan logs `ERROR`, `CRITICAL` o `FATAL`. Un `WARN` como el de
+  `paymentFailure` no se ingiere; el impacto se observa en el `ERROR`/`CRITICAL` de
+  `load-generator`.
+- Los logs internos del Collector (`otelcol-contrib`) se descartan con
+  `filter/sentinelai_noise` para evitar incidentes del propio Collector.
+- Las metricas y trazas OTLP quedan para una siguiente iteracion.
+- La deduplicacion es en memoria por proceso; con varios workers se necesita un
+  almacenamiento compartido.
+- El demo no corre en Render Free. Para la evidencia, ejecutalo localmente y captura la
+  respuesta del endpoint y los logs del Collector.
+- Si el Collector no conecta, confirma que SentinelAI escucha en `0.0.0.0`, que el
+  puerto `8000` esta libre y que `host.docker.internal` resuelve desde el contenedor.
+
+## 14. Checklist para la demo
 
 - [ ] `GET /health` responde `{"status": "ok"}` en Render.
 - [ ] `POST /events` con un incidente critico devuelve `is_anomaly: true`.
@@ -470,5 +578,7 @@ temporal se elimino despues de la prueba.
 - [ ] `python -m scripts.seed_incidents` ya se ejecuto y el conteo de filas es mayor que cero.
 - [ ] La key no aparece en el repositorio ni en capturas.
 - [ ] Sabes que hacer si aparece `429` o si Render esta dormido.
-- [ ] Puedes explicar que Neon/pgvector y Gemini Embeddings ya estan activos; Kafka y
-      Langfuse siguen pendientes.
+- [ ] Si usas OTel Demo, el Collector reenvia logs a `/ingest/otel/v1/logs`
+      (`200 OK`) y SentinelAI procesa al menos un evento critico.
+- [ ] Puedes explicar que Neon/pgvector y Gemini Embeddings ya estan activos; la ingesta
+      OTel Demo es logs-only y Kafka/Langfuse siguen pendientes.

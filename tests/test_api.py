@@ -19,6 +19,7 @@ def test_root_endpoint_describes_service():
     assert body["service"] == "sentinel-ai"
     assert body["health"] == "/health"
     assert body["events"] == "/events"
+    assert body["otel_logs"] == "/ingest/otel/v1/logs"
 
 
 def test_ingest_anomaly_event():
@@ -46,6 +47,25 @@ def test_ingest_anomaly_event():
 def test_ingest_rejects_invalid_payload():
     response = client.post("/events", json={"id": "no-amount"})
     assert response.status_code == 422
+
+
+def test_events_requires_key_when_configured(monkeypatch):
+    monkeypatch.setenv("SENTINEL_INGEST_API_KEY", "test-secret")
+    payload = {
+        "id": 800001,
+        "service_name": "payment-service",
+        "environment": "production",
+        "timestamp": "2026-10-06T16:00:00Z",
+        "log_level": "CRITICAL",
+        "message": "Connection failure to payment gateway API.",
+        "metrics": {"cpu": 95.5, "error_rate": 0.45},
+    }
+
+    unauthorized = client.post("/events", json=payload)
+    authorized = client.post("/events", json=payload, headers={"X-Ingest-Key": "test-secret"})
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
 
 
 def test_same_event_id_does_not_reuse_checkpoint():

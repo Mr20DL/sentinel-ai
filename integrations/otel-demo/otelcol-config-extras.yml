@@ -1,0 +1,27 @@
+# Copia este archivo en opentelemetry-demo/src/otel-collector/otelcol-config-extras.yml
+# y reinicia el demo. El Collector reenvia logs OTLP a SentinelAI.
+exporters:
+  otlphttp/sentinelai:
+    endpoint: http://host.docker.internal:8000/ingest/otel
+    encoding: json
+    compression: none
+    timeout: 10s
+    headers:
+      X-Ingest-Key: "${env:SENTINEL_INGEST_API_KEY:-}"
+
+processors:
+  filter/sentinelai_noise:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["service.name"] == "otelcol-contrib"'
+
+service:
+  pipelines:
+    logs:
+      processors:
+        - resource_detection
+        - memory_limiter
+        - transform/sanitize_logs
+        - filter/sentinelai_noise
+      exporters: [debug, otlphttp/sentinelai]

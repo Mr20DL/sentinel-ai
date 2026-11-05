@@ -32,3 +32,9 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: SENTINEL_INGEST_API_KEY
+        sync: false
+      - key: SENTINEL_OTEL_MAX_EVENTS
+        value: "3"
+      - key: SENTINEL_OTEL_DEDUP_TTL
+        value: "60"
