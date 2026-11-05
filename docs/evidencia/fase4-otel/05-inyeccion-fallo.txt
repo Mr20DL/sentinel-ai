@@ -1,0 +1,14 @@
+$ Select-String -Path "E:\opentelemetry-demo\src\flagd\demo.flagd.json" -Pattern 'paymentFailure' -Context 0,6
+  "paymentFailure": {
+    "defaultVariant": "100%",
+    "description": "Fail payment service charge requests n%",
+    "state": "ENABLED",
+    "variants": {
+      "10%": 0.1,
+      "100%": 1,
+
+$ docker logs payment | Select-String -SimpleMatch 'Payment request failed'
+payment_failures=95
+
+Las fallas de `payment` son `WARN`; el MVP solo procesa `ERROR`, `CRITICAL` y `FATAL`.
+Por eso la senal critica end-to-end se tomo de `load-generator`, no de `payment`.

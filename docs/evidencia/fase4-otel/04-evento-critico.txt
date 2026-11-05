@@ -1,0 +1,10 @@
+$ docker logs --timestamps sentinel-ai-otel | Select-String -Pattern '\[load-generator\].*Critical|trace=.*load-generator'
+...
+2026-11-05T22:09:59.477208676Z [Langfuse:noop] trace=trace-1037944727226033336-load-generator node=context_node
+2026-11-05T22:09:59.478165944Z [Notifier:ops-oncall] [load-generator] Critical log level detected in load-generator -> Restart application connection pool and monitor latency.
+2026-11-05T22:09:59.478185951Z [Langfuse:noop] trace=trace-1037944727226033336-load-generator node=response_node
+2026-11-05T22:10:00.487699018Z [Langfuse:noop] start_trace=trace-168454350629896609-load-generator
+2026-11-05T22:10:00.488514299Z [Langfuse:noop] trace=trace-168454350629896609-load-generator node=analysis_node
+2026-11-05T22:10:00.489868540Z [Langfuse:noop] trace=trace-168454350629896609-load-generator node=context_node
+2026-11-05T22:10:00.490527578Z [Notifier:ops-oncall] [load-generator] Critical log level detected in load-generator -> Restart application connection pool and monitor latency.
+2026-11-05T22:10:00.490611594Z [Langfuse:noop] trace=trace-168454350629896609-load-generator node=response_node

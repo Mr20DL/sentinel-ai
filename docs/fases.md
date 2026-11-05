@@ -72,3 +72,6 @@ Fase 4: Observabilidad y Despliegue
    Ingesta de logs OTLP desde OpenTelemetry Demo (MVP logs-only con filtro, dedup y
    límite de eventos por request). Métricas y trazas OTLP quedan para una iteración
    posterior.
+
+   Estado: cerrada el 2026-11-05. Evidencia:
+   [`docs/evidencia/fase4-otel/README.md`](evidencia/fase4-otel/README.md).

@@ -1,0 +1,13 @@
+$ docker inspect --format 'collector_started={{.State.StartedAt}}' otel-collector
+collector_started=2026-11-05T22:37:35.372001171Z
+
+$ docker logs --timestamps --since 2026-11-05T22:37:38Z sentinel-ai-otel
+since=2026-11-05T22:37:38Z
+otel_200_ok=4165
+otelcol_contrib_notifications=0
+load_generator_notifications=0
+
+El Collector siguio enviando logs (4165 POST 200 OK) y SentinelAI no genero
+notificaciones para `otelcol-contrib` despues de aplicar `filter/sentinelai_noise`.
+No hubo nuevos criticos de `load-generator` en esa ventana; el evento critico de
+referencia se capturo antes del reinicio del Collector.

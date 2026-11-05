@@ -1,0 +1,15 @@
+$ cd E:\opentelemetry-demo
+$ docker compose -f compose.yaml -f compose.override.yaml down
+...
+ Container otel-collector  Stopped
+ Container otel-collector  Removing
+ Container otel-collector  Removed
+ Network opentelemetry-demo  Removing
+ Network opentelemetry-demo  Removed
+
+$ docker ps -a --format "{{.Names}}" | Where-Object { $_ -in @('frontend-proxy','load-generator','frontend','checkout','recommendation','flagd-ui','shipping','payment','email','image-provider','quote','product-catalog','cart','ad','currency','astronomy-db','telemetry-docs','flagd','valkey-cart','otel-collector') }
+no_demo_containers
+
+$ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+NAMES              STATUS             PORTS
+sentinel-ai-otel   Up About an hour   0.0.0.0:8000->8080/tcp, [::]:8000->8080/tcp

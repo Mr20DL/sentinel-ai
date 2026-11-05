@@ -1,0 +1,5 @@
+$ Invoke-RestMethod -Uri http://localhost:8000/health -TimeoutSec 10
+{"status":"ok","service":"sentinel-ai"}
+
+$ docker inspect --format 'sentinel_started={{.State.StartedAt}}' sentinel-ai-otel
+sentinel_started=2026-11-05T21:27:48.384172881Z
