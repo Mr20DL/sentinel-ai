@@ -11,3 +11,7 @@ class ObservabilityPort(Protocol):
     def record_step(self, trace_id: str, node: str, payload: dict) -> None:
         """Registra el paso de un nodo del grafo dentro de la traza."""
         ...
+
+    def finish_trace(self, trace_id: str) -> None:
+        """Cierra la traza y libera los recursos asociados al adaptador."""
+        ...

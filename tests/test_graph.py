@@ -47,6 +47,25 @@ class _FailingTracker:
     def record_step(self, trace_id: str, node: str, payload: dict) -> None:
         raise RuntimeError("tracker unavailable")
 
+    def finish_trace(self, trace_id: str) -> None:
+        raise RuntimeError("tracker unavailable")
+
+
+class _RecordingTracker:
+    def __init__(self) -> None:
+        self.started: list[tuple[str, dict]] = []
+        self.steps: list[tuple[str, str, dict]] = []
+        self.finished: list[str] = []
+
+    def start_trace(self, trace_id: str, event: dict) -> None:
+        self.started.append((trace_id, event))
+
+    def record_step(self, trace_id: str, node: str, payload: dict) -> None:
+        self.steps.append((trace_id, node, payload))
+
+    def finish_trace(self, trace_id: str) -> None:
+        self.finished.append(trace_id)
+
 
 class _StubDiagnoser:
     def __init__(self) -> None:
@@ -331,6 +350,61 @@ def test_graph_survives_tracker_failure():
     assert result["notification_sent"] is True
 
 
+def test_graph_finishes_trace_on_anomaly_path():
+    tracker = _RecordingTracker()
+    components = build_default_components()
+    components["tracker"] = tracker
+    graph = create_sentinel_graph(components=components)
+    event = _event(log_level="CRITICAL")
+    cfg = {"configurable": {"thread_id": "test-trace-anomaly"}}
+
+    result = graph.invoke({"raw_event": event, "audit_logs": []}, config=cfg)
+
+    trace_id = result["trace_id"]
+    assert tracker.started[0][0] == trace_id
+    assert [step[1] for step in tracker.steps] == [
+        "ingestion_node",
+        "analysis_node",
+        "context_node",
+        "response_node",
+    ]
+    assert tracker.finished == [trace_id]
+
+
+def test_graph_finishes_trace_on_normal_path():
+    tracker = _RecordingTracker()
+    components = build_default_components()
+    components["tracker"] = tracker
+    graph = create_sentinel_graph(components=components)
+    event = _event(log_level="INFO", metrics={"cpu": 10.0, "error_rate": 0.01})
+    cfg = {"configurable": {"thread_id": "test-trace-normal"}}
+
+    result = graph.invoke({"raw_event": event, "audit_logs": []}, config=cfg)
+
+    trace_id = result["trace_id"]
+    assert [step[1] for step in tracker.steps] == [
+        "ingestion_node",
+        "analysis_node",
+    ]
+    assert tracker.finished == [trace_id]
+
+
+def test_graph_finishes_trace_on_zero_trust_rejection():
+    tracker = _RecordingTracker()
+    components = build_default_components()
+    components["tracker"] = tracker
+    graph = create_sentinel_graph(components=components)
+    event = _event(log_level="CRITICAL", message="")
+    event = event.model_copy(update={"service_name": ""})
+    cfg = {"configurable": {"thread_id": "test-trace-zero-trust"}}
+
+    result = graph.invoke({"raw_event": event, "audit_logs": []}, config=cfg)
+
+    trace_id = result["trace_id"]
+    assert [step[1] for step in tracker.steps] == ["ingestion_node"]
+    assert tracker.finished == [trace_id]
+
+
 def test_telemetry_contract_types_timestamp_and_metrics():
     event = _event(log_level="INFO", metrics={"cpu": "high", "memory_mb": 512})
 
@@ -398,17 +472,13 @@ class _RecordingRepository:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, int]] = []
 
-    def search_incidents(
-        self, service_name: str, query: str, limit: int = 5
-    ) -> list[str]:
+    def search_incidents(self, service_name: str, query: str, limit: int = 5) -> list[str]:
         self.calls.append((service_name, query, limit))
         return ["past incident"]
 
 
 class _FailingRepository:
-    def search_incidents(
-        self, service_name: str, query: str, limit: int = 5
-    ) -> list[str]:
+    def search_incidents(self, service_name: str, query: str, limit: int = 5) -> list[str]:
         raise RuntimeError("database unavailable")
 
 
@@ -423,9 +493,7 @@ def test_context_node_passes_event_message_to_repository():
         }
     )
 
-    assert repository.calls == [
-        ("payment-service", "database is down", 3)
-    ]
+    assert repository.calls == [("payment-service", "database is down", 3)]
     assert result["historical_context"] == ["past incident"]
     assert "Retrieved 1 historical records" in result["audit_logs"][0]
 

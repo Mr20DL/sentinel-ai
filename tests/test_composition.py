@@ -4,12 +4,14 @@ from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
 from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
 from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langchain_diagnoser import LangChainDiagnoser
+from src.adapters.langfuse_tracker import NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
 from src.composition import (
     _load_embedding_settings,
     _load_llm_settings,
     build_diagnosis_adapter,
     build_embedding_adapter,
+    build_observability_adapter,
     build_repository,
 )
 
@@ -34,6 +36,12 @@ _ENV_VARS = (
     "SENTINEL_EMBEDDING_API_KEY",
     "SENTINEL_EMBEDDING_DIMENSIONS",
     "SENTINEL_EMBEDDING_TIMEOUT",
+    "SENTINEL_OBSERVABILITY_PROVIDER",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_BASE_URL",
+    "LANGFUSE_HOST",
+    "LANGFUSE_TRACING_ENVIRONMENT",
 )
 
 
@@ -134,9 +142,7 @@ def test_gemini_provider_builds_adapter(monkeypatch):
     settings = _load_llm_settings()
 
     assert settings.model == "gemini-2.5-flash"
-    assert settings.base_url == (
-        "https://generativelanguage.googleapis.com/v1beta/openai/"
-    )
+    assert settings.base_url == ("https://generativelanguage.googleapis.com/v1beta/openai/")
     assert isinstance(build_diagnosis_adapter(), LangChainDiagnoser)
 
 
@@ -210,6 +216,68 @@ def test_invalid_numeric_settings_are_rejected(monkeypatch, name, value):
 
     with pytest.raises(ValueError, match=name):
         _load_llm_settings()
+
+
+def test_default_observability_provider_is_noop(monkeypatch):
+    _clear_llm_env(monkeypatch)
+
+    assert isinstance(build_observability_adapter(), NoopTracker)
+
+
+def test_langfuse_requires_public_and_secret_keys(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_OBSERVABILITY_PROVIDER", "langfuse")
+
+    with pytest.raises(RuntimeError, match="LANGFUSE_PUBLIC_KEY"):
+        build_observability_adapter()
+
+
+def test_langfuse_prefers_base_url_over_legacy_host(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_OBSERVABILITY_PROVIDER", "langfuse")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://base.example")
+    monkeypatch.setenv("LANGFUSE_HOST", "https://host.example")
+    calls = []
+
+    class _FakeTracker:
+        def __init__(self, public_key: str, secret_key: str, host: str) -> None:
+            calls.append((public_key, secret_key, host))
+
+    monkeypatch.setattr("src.composition.LangfuseTracker", _FakeTracker)
+
+    adapter = build_observability_adapter()
+
+    assert isinstance(adapter, _FakeTracker)
+    assert calls == [("pk-lf-test", "sk-lf-test", "https://base.example")]
+
+
+def test_langfuse_falls_back_to_legacy_host(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_OBSERVABILITY_PROVIDER", "langfuse")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+    monkeypatch.setenv("LANGFUSE_HOST", "https://host.example")
+    calls = []
+
+    class _FakeTracker:
+        def __init__(self, public_key: str, secret_key: str, host: str) -> None:
+            calls.append((public_key, secret_key, host))
+
+    monkeypatch.setattr("src.composition.LangfuseTracker", _FakeTracker)
+
+    build_observability_adapter()
+
+    assert calls == [("pk-lf-test", "sk-lf-test", "https://host.example")]
+
+
+def test_unknown_observability_provider_is_rejected(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_OBSERVABILITY_PROVIDER", "jaeger")
+
+    with pytest.raises(ValueError, match="SENTINEL_OBSERVABILITY_PROVIDER"):
+        build_observability_adapter()
 
 
 def test_default_embedding_provider_is_disabled(monkeypatch):

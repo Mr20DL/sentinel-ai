@@ -28,6 +28,16 @@ def should_continue(state: AgentState) -> str:
     return END
 
 
+def _is_terminal_step(name: str, result: dict) -> bool:
+    if name == "response_node":
+        return True
+    if name == "ingestion_node":
+        return not result.get("sanitization_ok", True)
+    if name == "analysis_node":
+        return not result.get("is_anomaly", True)
+    return False
+
+
 def create_sentinel_graph(
     components: dict | None = None,
     checkpointer: MemorySaver | None = None,
@@ -41,24 +51,22 @@ def create_sentinel_graph(
     def tracked(node, name):
         def wrapped(state: AgentState) -> dict:
             result = node(state)
-            if tracker and state.get("trace_id"):
+            trace_id = state.get("trace_id") or result.get("trace_id")
+            if tracker and trace_id:
                 with suppress(Exception):
-                    tracker.record_step(state["trace_id"], name, {"audit": result})
+                    tracker.record_step(trace_id, name, {"audit": result})
+                if _is_terminal_step(name, result):
+                    with suppress(Exception):
+                        tracker.finish_trace(trace_id)
             return result
 
         return wrapped
 
     workflow = StateGraph(AgentState)
 
-    workflow.add_node(
-        "ingestion_node", tracked(create_ingestion_node(tracker), "ingestion_node")
-    )
-    workflow.add_node(
-        "analysis_node", tracked(create_analysis_node(), "analysis_node")
-    )
-    workflow.add_node(
-        "context_node", tracked(create_context_node(repository), "context_node")
-    )
+    workflow.add_node("ingestion_node", tracked(create_ingestion_node(tracker), "ingestion_node"))
+    workflow.add_node("analysis_node", tracked(create_analysis_node(), "analysis_node"))
+    workflow.add_node("context_node", tracked(create_context_node(repository), "context_node"))
     workflow.add_node(
         "response_node",
         tracked(create_response_node(notifier, diagnoser), "response_node"),

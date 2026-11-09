@@ -13,6 +13,17 @@ Integrar **Langfuse** (Plataforma de Observabilidad de Código Abierto para LLMs
 2. **Auditoría de Razonamiento:** Se registran los prompts exactos, las respuestas intermedias, el consumo de tokens y el tiempo de ejecución por agente.
 3. **Monitoreo de Costos:** Permite visualizar métricas acumuladas de latencias, errores y gastos por llamadas a modelos de IA en un panel centralizado.
 
+## Implementation Notes
+- El adaptador usa Langfuse Python SDK v5, basado en OpenTelemetry.
+- `SENTINEL_OBSERVABILITY_PROVIDER=noop` es el default; `langfuse` exige
+  `LANGFUSE_PUBLIC_KEY` y `LANGFUSE_SECRET_KEY`.
+- `LANGFUSE_BASE_URL` tiene prioridad sobre `LANGFUSE_HOST`; si ninguno se define, se usa
+  Langfuse Cloud.
+- El `trace_id` del dominio se usa como semilla de `create_trace_id` para conservar la
+  correlación entre la API y Langfuse.
+- Cada nodo se registra como observación hija y la traza raíz se cierra al terminar la
+  ejecución. Un fallo del SDK degrada el adaptador sin abortar el incidente.
+
 ## Consequences
 - **Positivas:**
   - Visibilidad completa e inspección del ciclo de vida de cada decisión agéntica.

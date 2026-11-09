@@ -6,10 +6,11 @@ from src.adapters.console_notifier import ConsoleNotifier
 from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
 from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
 from src.adapters.in_memory_repository import InMemoryRepository
-from src.adapters.langfuse_tracker import NoopTracker
+from src.adapters.langfuse_tracker import LangfuseTracker, NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
 from src.ports.diagnosis import DiagnosisPort
 from src.ports.embeddings import EmbeddingPort
+from src.ports.observability import ObservabilityPort
 from src.ports.repository import IncidentRepositoryPort
 
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str | None]] = {
@@ -105,10 +106,7 @@ def _load_llm_settings() -> LLMSettings:
     default_model, default_base_url = _PROVIDER_DEFAULTS.get(provider, ("", None))
     model = (os.getenv("SENTINEL_LLM_MODEL") or default_model).strip()
     if not model:
-        raise ValueError(
-            "SENTINEL_LLM_MODEL is required for provider "
-            f"'{provider}'"
-        )
+        raise ValueError(f"SENTINEL_LLM_MODEL is required for provider '{provider}'")
 
     api_key = os.getenv("SENTINEL_LLM_API_KEY", "").strip()
     key_env = _PROVIDER_KEY_ENV.get(provider)
@@ -118,8 +116,7 @@ def _load_llm_settings() -> LLMSettings:
         api_key = "ollama-local"
     if not api_key:
         raise RuntimeError(
-            f"{key_env or 'SENTINEL_LLM_API_KEY'} is required when "
-            f"SENTINEL_LLM_PROVIDER={provider}"
+            f"{key_env or 'SENTINEL_LLM_API_KEY'} is required when SENTINEL_LLM_PROVIDER={provider}"
         )
 
     base_url = os.getenv("SENTINEL_LLM_BASE_URL", "").strip() or default_base_url
@@ -129,8 +126,7 @@ def _load_llm_settings() -> LLMSettings:
         base_url = os.getenv("OLLAMA_BASE_URL", "").strip() or default_base_url
     if provider == "openai-compatible" and not base_url:
         raise ValueError(
-            "SENTINEL_LLM_BASE_URL is required when "
-            "SENTINEL_LLM_PROVIDER=openai-compatible"
+            "SENTINEL_LLM_BASE_URL is required when SENTINEL_LLM_PROVIDER=openai-compatible"
         )
 
     return LLMSettings(
@@ -165,16 +161,13 @@ def _load_embedding_settings() -> EmbeddingSettings:
         raise ValueError(f"Unsupported SENTINEL_EMBEDDING_PROVIDER: {provider}")
 
     model = (
-        os.getenv("SENTINEL_EMBEDDING_MODEL", "gemini-embedding-2").strip()
-        or "gemini-embedding-2"
+        os.getenv("SENTINEL_EMBEDDING_MODEL", "gemini-embedding-2").strip() or "gemini-embedding-2"
     )
     api_key = os.getenv("SENTINEL_EMBEDDING_API_KEY", "").strip()
     if not api_key:
         api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY is required when SENTINEL_EMBEDDING_PROVIDER=gemini"
-        )
+        raise RuntimeError("GEMINI_API_KEY is required when SENTINEL_EMBEDDING_PROVIDER=gemini")
 
     return EmbeddingSettings(
         provider=provider,
@@ -219,6 +212,29 @@ def build_repository() -> IncidentRepositoryPort:
     return PostgresIncidentRepository(database_url, embedder)
 
 
+def build_observability_adapter() -> ObservabilityPort:
+    """Select no-op or Langfuse tracing from the environment."""
+    provider = os.getenv("SENTINEL_OBSERVABILITY_PROVIDER", "noop").strip().lower()
+    if provider in {"", "noop", "disabled", "none"}:
+        return NoopTracker()
+    if provider != "langfuse":
+        raise ValueError(f"Unsupported SENTINEL_OBSERVABILITY_PROVIDER: {provider}")
+
+    public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
+    secret_key = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
+    if not public_key or not secret_key:
+        raise RuntimeError(
+            "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required when "
+            "SENTINEL_OBSERVABILITY_PROVIDER=langfuse"
+        )
+    host = (
+        os.getenv("LANGFUSE_BASE_URL", "").strip()
+        or os.getenv("LANGFUSE_HOST", "").strip()
+        or "https://cloud.langfuse.com"
+    )
+    return LangfuseTracker(public_key, secret_key, host)
+
+
 def build_diagnosis_adapter() -> DiagnosisPort:
     """Select the diagnosis provider from the environment (composition root)."""
     settings = _load_llm_settings()
@@ -242,6 +258,6 @@ def build_default_components() -> dict:
     return {
         "repository": build_repository(),
         "notifier": ConsoleNotifier(),
-        "tracker": NoopTracker(),
+        "tracker": build_observability_adapter(),
         "diagnoser": build_diagnosis_adapter(),
     }

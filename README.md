@@ -20,7 +20,8 @@ Plataforma inteligente de observabilidad y resolución de incidentes agéntica b
 - [x] **Fase 3:** RAG y enriquecimiento de contexto con Neon/pgvector y Gemini
 - [ ] **Fase 4:** Observabilidad y despliegue productivo
   - [x] Ingesta de logs OTel Demo con filtro, dedup y límite de eventos
-  - [ ] Langfuse, Kafka y dashboard
+  - [x] Trazabilidad real con Langfuse (`SENTINEL_OBSERVABILITY_PROVIDER=langfuse`)
+  - [ ] Kafka y dashboard
 
 ## ☁️ Despliegue gratuito
 

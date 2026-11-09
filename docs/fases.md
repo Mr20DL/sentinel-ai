@@ -73,5 +73,9 @@ Fase 4: Observabilidad y Despliegue
    límite de eventos por request). Métricas y trazas OTLP quedan para una iteración
    posterior.
 
-   Estado: cerrada el 2026-11-05. Evidencia:
+   Trazabilidad de nodos con Langfuse v5 (SDK OpenTelemetry), seleccionable con
+   `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`; `noop` sigue siendo el default.
+
+   Estado: cerrada el 2026-11-05 e integración Langfuse completada el 2026-11-09.
+   Evidencia OTel:
    [`docs/evidencia/fase4-otel/README.md`](evidencia/fase4-otel/README.md).

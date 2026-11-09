@@ -27,9 +27,14 @@ La Fase 3 agrega:
 - Seed idempotente en `scripts/seed_incidents.py`.
 - Busqueda semantica en `context_node` usando el mensaje del evento.
 
+La Fase 4 agrega:
+
+- Trazabilidad real con Langfuse v5 (SDK OpenTelemetry) mediante
+  `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`.
+- `NoopTracker` como default para desarrollo y tests, sin llamadas de red.
+
 Lo que sigue sin implementarse de fases posteriores:
 
-- Observabilidad real con Langfuse (`NoopTracker` no envia trazas).
 - Consumo de Upstash Kafka.
 - Autenticacion y rate limiting del endpoint publico.
 
@@ -47,7 +52,7 @@ estado se pierde al reiniciar. Para persistencia real, configura Neon y ejecuta 
 | Base de datos RAG | Neon PostgreSQL + pgvector | Plan gratuito con auto-suspend | Fase 3; requiere `DATABASE_URL` |
 | Embeddings | Gemini Embeddings | Free tier sin costo | Fase 3; requiere `GEMINI_API_KEY` |
 | Kafka futuro | Upstash Kafka | Plan gratuito por request | Fase 4; aun no integrado |
-| Observabilidad futura | Langfuse Cloud | Plan gratuito | Fase 4; aun no integrado |
+| Observabilidad | Langfuse Cloud | Plan gratuito | Fase 4; requiere `LANGFUSE_PUBLIC_KEY` y `LANGFUSE_SECRET_KEY` |
 
 Referencias:
 
@@ -580,5 +585,7 @@ En una prueba directa al endpoint veras un resumen como
 - [ ] Sabes que hacer si aparece `429` o si Render esta dormido.
 - [ ] Si usas OTel Demo, el Collector reenvia logs a `/ingest/otel/v1/logs`
       (`200 OK`) y SentinelAI procesa al menos un evento critico.
-- [ ] Puedes explicar que Neon/pgvector y Gemini Embeddings ya estan activos; la ingesta
-      OTel Demo es logs-only y Kafka/Langfuse siguen pendientes.
+- [ ] Si `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`, las trazas de los nodos aparecen en
+      Langfuse; con `noop`, no se envia nada.
+- [ ] Puedes explicar que Neon/pgvector, Gemini Embeddings, la ingesta OTel Demo y
+      Langfuse ya estan activos; Kafka y el dashboard siguen pendientes.
