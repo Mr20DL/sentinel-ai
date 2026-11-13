@@ -13,7 +13,7 @@ Implementar **Arquitectura Hexagonal (Puertos y Adaptadores)** en la estructura 
 
 1. **Dominio Interno (`src/domain`):** Contiene la lógica pura de los agentes autónomos (Ingesta, Analítico, Contexto y Respuesta) y el modelo del grafo. No importa ningún paquete de infraestructura externa.
 2. **Puertos (`src/ports`):** Interfaces abstractas en Python (`ABC` / `Protocols`) que definen los contratos de comunicación que el dominio necesita (ej. `DatabaseRepositoryPort`, `NotificationPort`).
-3. **Adaptadores (`src/adapters`):** Implementaciones concretas de la infraestructura (ej. FastAPI para HTTP, Upstash para Kafka, Neon para PostgreSQL, y Langfuse para trazabilidad).
+3. **Adaptadores (`src/adapters`):** Implementaciones concretas de la infraestructura (ej. FastAPI para HTTP, Upstash QStash para la cola de ingesta, Neon para PostgreSQL, y Langfuse para trazabilidad).
 
 ## Consequences
 - **Positivas:** 

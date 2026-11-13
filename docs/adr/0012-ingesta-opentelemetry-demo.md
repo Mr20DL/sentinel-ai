@@ -3,6 +3,9 @@
 - **Status:** accepted
 - **Date:** 2026-11-05
 - **Deciders:** Equipo SentinelAI
+- **Nota (2026-11-13):** El punto 6 queda superado por el
+  [ADR-0013](0013-cola-qstash-ingesta-otel.md), que introduce QStash para desacoplar la
+  ingesta del procesamiento.
 
 ## Context
 

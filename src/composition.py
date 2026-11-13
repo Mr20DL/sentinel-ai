@@ -1,6 +1,8 @@
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import cast
+from urllib.parse import urlparse
 
 from src.adapters.console_notifier import ConsoleNotifier
 from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
@@ -8,9 +10,12 @@ from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
 from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langfuse_tracker import LangfuseTracker, NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
+from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
+from src.domain.state import TelemetryEvent
 from src.ports.diagnosis import DiagnosisPort
 from src.ports.embeddings import EmbeddingPort
 from src.ports.observability import ObservabilityPort
+from src.ports.queue import TelemetryQueuePort
 from src.ports.repository import IncidentRepositoryPort
 
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str | None]] = {
@@ -51,6 +56,16 @@ class EmbeddingSettings:
     api_key: str
     dimensions: int
     timeout: float
+
+
+@dataclass(frozen=True)
+class QueueSettings:
+    provider: str
+    token: str
+    destination_url: str
+    current_signing_key: str
+    next_signing_key: str
+    base_url: str | None
 
 
 def _env_float(name: str, default: float) -> float:
@@ -210,6 +225,65 @@ def build_repository() -> IncidentRepositoryPort:
             "SENTINEL_EMBEDDING_PROVIDER must be gemini when DATABASE_URL is configured"
         )
     return PostgresIncidentRepository(database_url, embedder)
+
+
+def _load_queue_settings() -> QueueSettings:
+    provider = os.getenv("SENTINEL_QUEUE_PROVIDER", "inline").strip().lower()
+    if provider in {"", "inline", "memory", "local"}:
+        return QueueSettings(
+            provider="inline",
+            token=os.getenv("QSTASH_TOKEN", ""),
+            destination_url="",
+            current_signing_key="",
+            next_signing_key="",
+            base_url=None,
+        )
+    if provider != "qstash":
+        raise ValueError(f"Unsupported SENTINEL_QUEUE_PROVIDER: {provider}")
+
+    token = os.getenv("QSTASH_TOKEN", "").strip()
+    destination_url = os.getenv("SENTINEL_OTEL_WORKER_URL", "").strip()
+    current_signing_key = os.getenv("QSTASH_CURRENT_SIGNING_KEY", "").strip()
+    next_signing_key = os.getenv("QSTASH_NEXT_SIGNING_KEY", "").strip()
+    missing = [
+        name
+        for name, value in (
+            ("QSTASH_TOKEN", token),
+            ("SENTINEL_OTEL_WORKER_URL", destination_url),
+            ("QSTASH_CURRENT_SIGNING_KEY", current_signing_key),
+            ("QSTASH_NEXT_SIGNING_KEY", next_signing_key),
+        )
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(f"{', '.join(missing)} required when SENTINEL_QUEUE_PROVIDER=qstash")
+
+    parsed = urlparse(destination_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("SENTINEL_OTEL_WORKER_URL must be a valid http(s) URL")
+
+    return QueueSettings(
+        provider="qstash",
+        token=token,
+        destination_url=destination_url,
+        current_signing_key=current_signing_key,
+        next_signing_key=next_signing_key,
+        base_url=os.getenv("QSTASH_URL", "").strip() or None,
+    )
+
+
+def build_telemetry_queue(processor: Callable[[TelemetryEvent], object]) -> TelemetryQueuePort:
+    """Select inline processing or Upstash QStash from the environment."""
+    settings = _load_queue_settings()
+    if settings.provider == "inline":
+        return InlineTelemetryQueue(processor)
+    return QStashTelemetryQueue(
+        token=settings.token,
+        destination_url=settings.destination_url,
+        current_signing_key=settings.current_signing_key,
+        next_signing_key=settings.next_signing_key,
+        base_url=settings.base_url,
+    )
 
 
 def build_observability_adapter() -> ObservabilityPort:

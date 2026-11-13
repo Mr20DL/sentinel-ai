@@ -21,7 +21,8 @@ Plataforma inteligente de observabilidad y resolución de incidentes agéntica b
 - [ ] **Fase 4:** Observabilidad y despliegue productivo
   - [x] Ingesta de logs OTel Demo con filtro, dedup y límite de eventos
   - [x] Trazabilidad real con Langfuse (`SENTINEL_OBSERVABILITY_PROVIDER=langfuse`)
-  - [ ] Kafka y dashboard
+  - [x] Cola QStash para desacoplar la ingesta OTLP (`SENTINEL_QUEUE_PROVIDER=qstash`)
+  - [ ] Dashboard en tiempo real
 
 ## ☁️ Despliegue gratuito
 

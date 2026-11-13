@@ -32,10 +32,12 @@ La Fase 4 agrega:
 - Trazabilidad real con Langfuse v5 (SDK OpenTelemetry) mediante
   `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`.
 - `NoopTracker` como default para desarrollo y tests, sin llamadas de red.
+- Cola Upstash QStash para desacoplar la ingesta OTLP mediante
+  `SENTINEL_QUEUE_PROVIDER=qstash`; `inline` sigue siendo el default local.
 
 Lo que sigue sin implementarse de fases posteriores:
 
-- Consumo de Upstash Kafka.
+- Dashboard en tiempo real.
 - Autenticacion y rate limiting del endpoint publico.
 
 Si `DATABASE_URL` no esta configurado, la API sigue usando `InMemoryRepository` y el
@@ -51,7 +53,7 @@ estado se pierde al reiniciar. Para persistencia real, configura Neon y ejecuta 
 | Hosting API | Render Free | 750 horas/mes, sin tarjeta | Duerme a los 15 min y tarda ~1 min en despertar |
 | Base de datos RAG | Neon PostgreSQL + pgvector | Plan gratuito con auto-suspend | Fase 3; requiere `DATABASE_URL` |
 | Embeddings | Gemini Embeddings | Free tier sin costo | Fase 3; requiere `GEMINI_API_KEY` |
-| Kafka futuro | Upstash Kafka | Plan gratuito por request | Fase 4; aun no integrado |
+| Cola OTLP | Upstash QStash | 1.000 entregas/dia, 1 MB por mensaje | Fase 4; opcional con `SENTINEL_QUEUE_PROVIDER=qstash` |
 | Observabilidad | Langfuse Cloud | Plan gratuito | Fase 4; requiere `LANGFUSE_PUBLIC_KEY` y `LANGFUSE_SECRET_KEY` |
 
 Referencias:
@@ -64,6 +66,8 @@ Referencias:
 - Gemini pricing: <https://ai.google.dev/gemini-api/docs/pricing>
 - OpenRouter limits: <https://openrouter.ai/docs/api-reference/limits>
 - Render free tier: <https://render.com/docs/free>
+- QStash pricing: <https://upstash.com/pricing/qstash>
+- QStash signatures: <https://upstash.com/docs/qstash/howto/signature>
 
 ## 3. Crear la API key de Groq
 
@@ -471,7 +475,9 @@ Esta integracion usa logs reales de OpenTelemetry Demo. El Collector reenvia los
 por OTLP HTTP JSON a SentinelAI; el dominio sigue recibiendo solo `TelemetryEvent`.
 
 ```text
-OpenTelemetry Demo -> OTel Collector -> /ingest/otel/v1/logs -> ingestion_node -> grafo
+OpenTelemetry Demo -> OTel Collector -> /ingest/otel/v1/logs
+  -> inline: ingestion_node -> grafo
+  -> qstash: QStash -> /internal/otel/process -> ingestion_node -> grafo
 ```
 
 ### 13.1 Requisitos
@@ -555,9 +561,36 @@ docker logs sentinel-ai-otel --tail 50
 ```
 
 En una prueba directa al endpoint veras un resumen como
-`{"accepted": 1, "processed": 1, "failed": 0}`; el Collector solo muestra el `200`.
+`{"accepted": 1, "queued": 1, "failed": 0}`; el Collector solo muestra el `200`.
 
-### 13.5 Limites y siguientes pasos
+### 13.5 Activar la cola QStash
+
+El modo `inline` procesa en el mismo request y es el default para desarrollo. Para
+desacoplar la ingesta en Render:
+
+1. Crea una cuenta en <https://upstash.com/> y abre la pestana QStash.
+2. Copia el `QSTASH_TOKEN` y las signing keys actual y siguiente.
+3. Configura estas variables en Render:
+
+```dotenv
+SENTINEL_QUEUE_PROVIDER=qstash
+QSTASH_TOKEN=tu_token
+QSTASH_URL=https://qstash.upstash.io
+QSTASH_CURRENT_SIGNING_KEY=tu_current_signing_key
+QSTASH_NEXT_SIGNING_KEY=tu_next_signing_key
+SENTINEL_OTEL_WORKER_URL=https://tu-servicio.onrender.com/internal/otel/process
+```
+
+`SENTINEL_OTEL_WORKER_URL` debe ser la URL publica exacta que QStash invoca; se usa para
+verificar la firma. El endpoint `/internal/otel/process` rechaza solicitudes sin
+`Upstash-Signature` valida y no procesa nada cuando el modo es `inline`.
+
+QStash reintenta las entregas fallidas y conserva los mensajes agotados en su DLQ. La
+entrega es at-least-once: un evento puede procesarse mas de una vez si QStash no recibe
+la confirmacion. El plan gratuito permite 1.000 entregas por dia (los reintentos cuentan)
+y 1 MB por mensaje.
+
+### 13.6 Limites y siguientes pasos
 
 - Solo se procesan logs `ERROR`, `CRITICAL` o `FATAL`. Un `WARN` como el de
   `paymentFailure` no se ingiere; el impacto se observa en el `ERROR`/`CRITICAL` de
@@ -587,5 +620,5 @@ En una prueba directa al endpoint veras un resumen como
       (`200 OK`) y SentinelAI procesa al menos un evento critico.
 - [ ] Si `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`, las trazas de los nodos aparecen en
       Langfuse; con `noop`, no se envia nada.
-- [ ] Puedes explicar que Neon/pgvector, Gemini Embeddings, la ingesta OTel Demo y
-      Langfuse ya estan activos; Kafka y el dashboard siguen pendientes.
+- [ ] Puedes explicar que Neon/pgvector, Gemini Embeddings y la ingesta OTel Demo estan
+      activos, y que QStash y Langfuse quedan opt-in; el dashboard sigue pendiente.

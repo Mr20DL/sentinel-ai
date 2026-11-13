@@ -76,6 +76,10 @@ Fase 4: Observabilidad y Despliegue
    Trazabilidad de nodos con Langfuse v5 (SDK OpenTelemetry), seleccionable con
    `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`; `noop` sigue siendo el default.
 
-   Estado: cerrada el 2026-11-05 e integración Langfuse completada el 2026-11-09.
+   Cola QStash para desacoplar la ingesta OTLP del procesamiento, seleccionable con
+   `SENTINEL_QUEUE_PROVIDER=qstash`; `inline` sigue siendo el default local.
+
+   Estado: cerrada el 2026-11-05, integración Langfuse completada el 2026-11-09 y cola
+   QStash completada el 2026-11-13.
    Evidencia OTel:
    [`docs/evidencia/fase4-otel/README.md`](evidencia/fase4-otel/README.md).

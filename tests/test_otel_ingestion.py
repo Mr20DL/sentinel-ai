@@ -138,7 +138,7 @@ def test_otel_endpoint_processes_critical_log():
     response = client.post("/ingest/otel/v1/logs", json=_payload())
 
     assert response.status_code == 200
-    assert response.json() == {"accepted": 1, "processed": 1, "failed": 0}
+    assert response.json() == {"accepted": 1, "queued": 1, "failed": 0}
 
 
 def test_otel_endpoint_requires_key_when_configured(monkeypatch):
@@ -298,10 +298,10 @@ def test_otel_endpoint_reports_engine_failures(monkeypatch):
     response = client.post("/ingest/otel/v1/logs", json=_payload())
 
     assert response.status_code == 200
-    assert response.json() == {"accepted": 1, "processed": 0, "failed": 1}
+    assert response.json() == {"accepted": 1, "queued": 0, "failed": 1}
 
 
-def test_otel_endpoint_handles_non_anomaly_result(monkeypatch):
+def test_otel_endpoint_enqueues_non_anomaly_result(monkeypatch):
     class NormalEngine:
         def invoke(self, *args: object, **kwargs: object) -> dict:
             return {"is_anomaly": False}
@@ -312,7 +312,50 @@ def test_otel_endpoint_handles_non_anomaly_result(monkeypatch):
     response = client.post("/ingest/otel/v1/logs", json=_payload())
 
     assert response.status_code == 200
-    assert response.json() == {"accepted": 1, "processed": 0, "failed": 0}
+    assert response.json() == {"accepted": 1, "queued": 1, "failed": 0}
+
+
+def test_otel_endpoint_publishes_to_remote_queue(monkeypatch):
+    class RemoteQueue:
+        is_remote = True
+
+        def __init__(self) -> None:
+            self.published = []
+
+        def publish(self, event: object) -> None:
+            self.published.append(event)
+
+        def verify_signature(self, body: bytes, signature: str) -> bool:
+            return False
+
+    queue = RemoteQueue()
+    monkeypatch.setattr("src.adapters.fastapi_app.telemetry_queue", queue)
+    otel_normalizer.clear()
+
+    response = client.post("/ingest/otel/v1/logs", json=_payload())
+
+    assert response.status_code == 200
+    assert response.json() == {"accepted": 1, "queued": 1, "failed": 0}
+    assert len(queue.published) == 1
+
+
+def test_otel_endpoint_reports_queue_failures(monkeypatch):
+    class BrokenQueue:
+        is_remote = True
+
+        def publish(self, event: object) -> None:
+            raise RuntimeError("queue down")
+
+        def verify_signature(self, body: bytes, signature: str) -> bool:
+            return False
+
+    monkeypatch.setattr("src.adapters.fastapi_app.telemetry_queue", BrokenQueue())
+    otel_normalizer.clear()
+
+    response = client.post("/ingest/otel/v1/logs", json=_payload())
+
+    assert response.status_code == 200
+    assert response.json() == {"accepted": 1, "queued": 0, "failed": 1}
 
 
 def test_otel_endpoint_ignores_invalid_max_events(monkeypatch):

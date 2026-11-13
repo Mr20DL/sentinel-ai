@@ -12,7 +12,7 @@ Asimismo, las diferencias en los entornos de desarrollo locales de los integrant
 Adoptar los principios de **Zero Trust Architecture (Arquitectura de Cero Confianza)** y Aislamiento:
 
 1. **Sanitización de Ingesta:** El Agente de Ingesta actúa como frontera de seguridad (*Trust Boundary*), validando y limpiando cualquier payload de entrada antes de ser procesado por los agentes analíticos.
-2. **Principio de Menor Privilegio:** Cada servicio y adaptador cuenta con claves de API independientes con permisos mínimos necesarios (ej. la API de ingesta solo tiene permisos de escritura en Kafka, no de lectura en PostgreSQL).
+2. **Principio de Menor Privilegio:** Cada servicio y adaptador cuenta con claves de API independientes con permisos mínimos necesarios (ej. la API de ingesta solo tiene permisos de escritura en la cola QStash, no de lectura en PostgreSQL).
 3. **Aislamiento en Dev Containers:** Utilizar VS Code Dev Containers (#73 en Radar) para encapsular las dependencias, herramientas y versiones exactas de runtime en contenedores Docker estandarizados para todo el equipo.
 
 ## Consequences

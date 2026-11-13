@@ -2,6 +2,8 @@
 
 - **Status:** accepted
 - **Date:** 2026-09-14
+- **Nota (2026-11-13):** Upstash Kafka fue discontinuado el 11 de marzo de 2025. El bus
+  de eventos se reemplaza por Upstash QStash segun el [ADR-0013](0013-cola-qstash-ingesta-otel.md).
 - **Nota (2026-10-09):** Este ADR documenta el **soporte del requisito "diseño nativo para nube" (punto 4a del PRA)**. El stack descrito (Render, Upstash Kafka, Neon PostgreSQL) **no corresponde a un ítem con nombre del Technology Radar Vol. 34**, por lo que **no cuenta como una de las seis tendencias** del proyecto. Las seis tendencias se listan en `docs/trends_selection.md`.
 
 ## Context

@@ -20,6 +20,7 @@ def test_root_endpoint_describes_service():
     assert body["health"] == "/health"
     assert body["events"] == "/events"
     assert body["otel_logs"] == "/ingest/otel/v1/logs"
+    assert body["otel_worker"] == "/internal/otel/process"
 
 
 def test_ingest_anomaly_event():
@@ -66,6 +67,103 @@ def test_events_requires_key_when_configured(monkeypatch):
 
     assert unauthorized.status_code == 401
     assert authorized.status_code == 200
+
+
+def _worker_event(event_id: int = 910001) -> dict:
+    return {
+        "id": event_id,
+        "service_name": "payment-service",
+        "environment": "production",
+        "timestamp": "2026-11-09T12:00:00Z",
+        "log_level": "CRITICAL",
+        "message": "Connection failure to payment gateway API.",
+        "metrics": {"cpu": 95.5, "error_rate": 0.45},
+    }
+
+
+class _RemoteQueue:
+    is_remote = True
+
+    def __init__(self, valid_signature: bool = True) -> None:
+        self.valid_signature = valid_signature
+        self.published = []
+
+    def publish(self, event: object) -> None:
+        self.published.append(event)
+
+    def verify_signature(self, body: bytes, signature: str) -> bool:
+        return self.valid_signature
+
+
+def test_worker_endpoint_is_disabled_for_inline_queue():
+    response = client.post("/internal/otel/process", json=_worker_event())
+
+    assert response.status_code == 404
+
+
+def test_worker_endpoint_rejects_missing_signature(monkeypatch):
+    monkeypatch.setattr("src.adapters.fastapi_app.telemetry_queue", _RemoteQueue())
+
+    response = client.post("/internal/otel/process", json=_worker_event())
+
+    assert response.status_code == 401
+
+
+def test_worker_endpoint_rejects_invalid_signature(monkeypatch):
+    monkeypatch.setattr(
+        "src.adapters.fastapi_app.telemetry_queue",
+        _RemoteQueue(valid_signature=False),
+    )
+
+    response = client.post(
+        "/internal/otel/process",
+        json=_worker_event(),
+        headers={"Upstash-Signature": "invalid"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_worker_endpoint_processes_signed_event(monkeypatch):
+    monkeypatch.setattr("src.adapters.fastapi_app.telemetry_queue", _RemoteQueue())
+
+    response = client.post(
+        "/internal/otel/process",
+        json=_worker_event(),
+        headers={"Upstash-Signature": "valid"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"processed": 1, "is_anomaly": True}
+
+
+def test_worker_endpoint_rejects_invalid_event(monkeypatch):
+    monkeypatch.setattr("src.adapters.fastapi_app.telemetry_queue", _RemoteQueue())
+
+    response = client.post(
+        "/internal/otel/process",
+        json={"id": "not-an-integer"},
+        headers={"Upstash-Signature": "valid"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_worker_endpoint_reports_engine_failures(monkeypatch):
+    class BrokenEngine:
+        def invoke(self, *args: object, **kwargs: object) -> dict:
+            raise RuntimeError("engine down")
+
+    monkeypatch.setattr("src.adapters.fastapi_app.telemetry_queue", _RemoteQueue())
+    monkeypatch.setattr("src.adapters.fastapi_app.engine", BrokenEngine())
+
+    response = client.post(
+        "/internal/otel/process",
+        json=_worker_event(),
+        headers={"Upstash-Signature": "valid"},
+    )
+
+    assert response.status_code == 500
 
 
 def test_same_event_id_does_not_reuse_checkpoint():

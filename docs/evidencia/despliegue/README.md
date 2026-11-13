@@ -61,8 +61,10 @@ con el commit `cda83b6`; su salida pública está en `07-root-render.txt`. Devue
 - Render Free duerme tras 15 minutos sin tráfico; la primera petición puede tardar
   cerca de un minuto.
 - Groq free tier: 30 RPM, 1.000 req/día, 8K TPM y 200K tokens/día por modelo.
-- Langfuse sigue usando `NoopTracker`; las trazas solo se imprimen en consola.
-- Upstash Kafka aún no está integrado.
+- La captura usa `NoopTracker`; Langfuse queda opt-in con
+  `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`.
+- La captura usa procesamiento `inline`; QStash queda opt-in con
+  `SENTINEL_QUEUE_PROVIDER=qstash`.
 
 ## Reproducción
 

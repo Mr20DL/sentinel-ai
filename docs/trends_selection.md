@@ -94,7 +94,7 @@ Leyenda: ● = habilitador directo de la capacidad. El stack serverless de infra
 | Resultado de aprendizaje | Cómo lo cubre esta selección |
 |---|---|
 | RA1 — Diseño con arquitectura + tendencias | Arquitectura Hexagonal (ADR-0001) + las 6 tendencias |
-| RA2 — Cloud native (serverless / microservicios / eventos) | Stack serverless (ADR-0003) + arquitectura orientada a eventos (Kafka/Upstash) |
+| RA2 — Cloud native (serverless / microservicios / eventos) | Stack serverless (ADR-0003) + arquitectura orientada a eventos (Upstash QStash, ADR-0013) |
 | RA3 — Pruebas de concepto y demos de ≥2 tendencias | Demo con OTel Demo: Structured output + LangGraph + Langfuse (trazas) |
 | RA4 — Solución real con 2+ tecnologías en tendencia | LangGraph (motor funcional) + Pydantic/Structured output (contratos) implementados y probados |
 

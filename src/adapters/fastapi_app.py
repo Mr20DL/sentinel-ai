@@ -2,10 +2,13 @@ import os
 import secrets
 import uuid
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from src.adapters.otel_ingestion import OtelLogNormalizer
+from src.composition import build_telemetry_queue
 from src.domain.graph import create_sentinel_graph
 from src.domain.state import TelemetryEvent
 
@@ -20,6 +23,16 @@ engine = create_sentinel_graph()
 
 def _build_thread_id(event: TelemetryEvent) -> str:
     return f"event-{event.id}-{uuid.uuid4().hex}"
+
+
+def _process_event(event: TelemetryEvent) -> dict:
+    return engine.invoke(
+        {"raw_event": event, "audit_logs": []},
+        config={"configurable": {"thread_id": _build_thread_id(event)}},
+    )
+
+
+telemetry_queue = build_telemetry_queue(_process_event)
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -59,6 +72,7 @@ def root() -> dict:
         "health": "/health",
         "events": "/events",
         "otel_logs": "/ingest/otel/v1/logs",
+        "otel_worker": "/internal/otel/process",
         "docs": "/docs",
     }
 
@@ -96,19 +110,36 @@ def ingest_event(event: TelemetryEvent) -> JSONResponse:
 def ingest_otel_logs(payload: dict) -> JSONResponse:
     max_events = _positive_int_env("SENTINEL_OTEL_MAX_EVENTS", 3)
     events = otel_normalizer.normalize(payload, max_events=max_events)
-    processed = 0
+    queued = 0
     failed = 0
     for event in events:
         try:
-            result = engine.invoke(
-                {"raw_event": event, "audit_logs": []},
-                config={"configurable": {"thread_id": _build_thread_id(event)}},
-            )
-            if result.get("is_anomaly"):
-                processed += 1
+            telemetry_queue.publish(event)
+            queued += 1
         except Exception:
             failed += 1
-    return JSONResponse({"accepted": len(events), "processed": processed, "failed": failed})
+    return JSONResponse({"accepted": len(events), "queued": queued, "failed": failed})
+
+
+@app.post("/internal/otel/process")
+async def process_otel_event(
+    request: Request,
+    upstash_signature: str | None = Header(default=None, alias="Upstash-Signature"),
+) -> JSONResponse:
+    if not telemetry_queue.is_remote:
+        raise HTTPException(status_code=404, detail="Worker endpoint is disabled")
+    body = await request.body()
+    if not upstash_signature or not telemetry_queue.verify_signature(body, upstash_signature):
+        raise HTTPException(status_code=401, detail="Invalid QStash signature")
+    try:
+        event = TelemetryEvent.model_validate_json(body)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail="Invalid telemetry event") from exc
+    try:
+        result = await run_in_threadpool(_process_event, event)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Event processing failed") from exc
+    return JSONResponse({"processed": 1, "is_anomaly": bool(result.get("is_anomaly"))})
 
 
 if __name__ == "__main__":

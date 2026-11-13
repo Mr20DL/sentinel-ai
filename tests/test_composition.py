@@ -6,13 +6,16 @@ from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langchain_diagnoser import LangChainDiagnoser
 from src.adapters.langfuse_tracker import NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
+from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
 from src.composition import (
     _load_embedding_settings,
     _load_llm_settings,
+    _load_queue_settings,
     build_diagnosis_adapter,
     build_embedding_adapter,
     build_observability_adapter,
     build_repository,
+    build_telemetry_queue,
 )
 
 _ENV_VARS = (
@@ -42,6 +45,12 @@ _ENV_VARS = (
     "LANGFUSE_BASE_URL",
     "LANGFUSE_HOST",
     "LANGFUSE_TRACING_ENVIRONMENT",
+    "SENTINEL_QUEUE_PROVIDER",
+    "QSTASH_TOKEN",
+    "QSTASH_URL",
+    "QSTASH_CURRENT_SIGNING_KEY",
+    "QSTASH_NEXT_SIGNING_KEY",
+    "SENTINEL_OTEL_WORKER_URL",
 )
 
 
@@ -278,6 +287,61 @@ def test_unknown_observability_provider_is_rejected(monkeypatch):
 
     with pytest.raises(ValueError, match="SENTINEL_OBSERVABILITY_PROVIDER"):
         build_observability_adapter()
+
+
+def test_default_telemetry_queue_is_inline(monkeypatch):
+    _clear_llm_env(monkeypatch)
+
+    queue = build_telemetry_queue(lambda event: None)
+
+    assert isinstance(queue, InlineTelemetryQueue)
+    assert _load_queue_settings().provider == "inline"
+
+
+def test_unknown_telemetry_queue_provider_is_rejected(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_QUEUE_PROVIDER", "kafka")
+
+    with pytest.raises(ValueError, match="SENTINEL_QUEUE_PROVIDER"):
+        build_telemetry_queue(lambda event: None)
+
+
+def test_qstash_queue_requires_configuration(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_QUEUE_PROVIDER", "qstash")
+
+    with pytest.raises(RuntimeError, match="QSTASH_TOKEN"):
+        build_telemetry_queue(lambda event: None)
+
+
+def test_qstash_queue_rejects_invalid_worker_url(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_QUEUE_PROVIDER", "qstash")
+    monkeypatch.setenv("QSTASH_TOKEN", "test-token")
+    monkeypatch.setenv("SENTINEL_OTEL_WORKER_URL", "not-a-url")
+    monkeypatch.setenv("QSTASH_CURRENT_SIGNING_KEY", "current-key")
+    monkeypatch.setenv("QSTASH_NEXT_SIGNING_KEY", "next-key")
+
+    with pytest.raises(ValueError, match="SENTINEL_OTEL_WORKER_URL"):
+        build_telemetry_queue(lambda event: None)
+
+
+def test_qstash_queue_builds_adapter(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_QUEUE_PROVIDER", "qstash")
+    monkeypatch.setenv("QSTASH_TOKEN", "test-token")
+    monkeypatch.setenv("SENTINEL_OTEL_WORKER_URL", "https://example.com/internal/otel/process")
+    monkeypatch.setenv("QSTASH_CURRENT_SIGNING_KEY", "current-key")
+    monkeypatch.setenv("QSTASH_NEXT_SIGNING_KEY", "next-key")
+    monkeypatch.setenv("QSTASH_URL", "https://qstash.example.com")
+
+    settings = _load_queue_settings()
+    queue = build_telemetry_queue(lambda event: None)
+
+    assert settings.provider == "qstash"
+    assert settings.base_url == "https://qstash.example.com"
+    assert isinstance(queue, QStashTelemetryQueue)
+    assert queue.is_remote is True
 
 
 def test_default_embedding_provider_is_disabled(monkeypatch):
