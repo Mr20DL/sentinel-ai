@@ -4,11 +4,12 @@ import uuid
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
+from src.adapters.dashboard_page import DASHBOARD_HTML
 from src.adapters.otel_ingestion import OtelLogNormalizer
-from src.composition import build_telemetry_queue
+from src.composition import build_event_feed, build_rate_limiter, build_telemetry_queue
 from src.domain.graph import create_sentinel_graph
 from src.domain.state import TelemetryEvent
 
@@ -19,6 +20,7 @@ app = FastAPI(
 )
 
 engine = create_sentinel_graph()
+event_feed = build_event_feed()
 
 
 def _build_thread_id(event: TelemetryEvent) -> str:
@@ -26,13 +28,16 @@ def _build_thread_id(event: TelemetryEvent) -> str:
 
 
 def _process_event(event: TelemetryEvent) -> dict:
-    return engine.invoke(
+    result = engine.invoke(
         {"raw_event": event, "audit_logs": []},
         config={"configurable": {"thread_id": _build_thread_id(event)}},
     )
+    event_feed.record(event, result)
+    return result
 
 
 telemetry_queue = build_telemetry_queue(_process_event)
+rate_limiter = build_rate_limiter()
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -64,6 +69,22 @@ def _verify_ingest_key(
         raise HTTPException(status_code=401, detail="Invalid ingest key")
 
 
+def _client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_rate_limit(request: Request) -> None:
+    if rate_limiter is not None and not rate_limiter.allow(_client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": "60"},
+        )
+
+
 @app.get("/")
 def root() -> dict:
     return {
@@ -73,6 +94,8 @@ def root() -> dict:
         "events": "/events",
         "otel_logs": "/ingest/otel/v1/logs",
         "otel_worker": "/internal/otel/process",
+        "dashboard": "/dashboard",
+        "dashboard_events": "/dashboard/events",
         "docs": "/docs",
     }
 
@@ -82,12 +105,25 @@ def health() -> dict:
     return {"status": "ok", "service": "sentinel-ai"}
 
 
-@app.post("/events", dependencies=[Depends(_verify_ingest_key)])
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard() -> HTMLResponse:
+    return HTMLResponse(DASHBOARD_HTML)
+
+
+@app.get("/dashboard/events")
+def dashboard_events(limit: int = 50) -> JSONResponse:
+    safe_limit = max(1, min(limit, 200))
+    snapshots = event_feed.recent(safe_limit)
+    return JSONResponse({"events": [snapshot.model_dump(mode="json") for snapshot in snapshots]})
+
+
+@app.post(
+    "/events",
+    dependencies=[Depends(_verify_ingest_key), Depends(_enforce_rate_limit)],
+)
 def ingest_event(event: TelemetryEvent) -> JSONResponse:
-    result = engine.invoke(
-        {"raw_event": event, "audit_logs": []},
-        config={"configurable": {"thread_id": _build_thread_id(event)}},
-    )
+    result = _process_event(event)
+    anomaly_output = result.get("anomaly_output")
     diagnosis = result.get("diagnosis")
     return JSONResponse(
         {
@@ -95,9 +131,7 @@ def ingest_event(event: TelemetryEvent) -> JSONResponse:
             "sanitization_ok": result.get("sanitization_ok"),
             "is_anomaly": result.get("is_anomaly"),
             "anomaly_score": result.get("anomaly_score"),
-            "anomaly_output": (
-                result.get("anomaly_output").model_dump() if result.get("anomaly_output") else None
-            ),
+            "anomaly_output": anomaly_output.model_dump() if anomaly_output else None,
             "historical_context": result.get("historical_context", []),
             "diagnosis": diagnosis.model_dump() if diagnosis else None,
             "notification_sent": result.get("notification_sent"),
@@ -106,7 +140,10 @@ def ingest_event(event: TelemetryEvent) -> JSONResponse:
     )
 
 
-@app.post("/ingest/otel/v1/logs", dependencies=[Depends(_verify_ingest_key)])
+@app.post(
+    "/ingest/otel/v1/logs",
+    dependencies=[Depends(_verify_ingest_key), Depends(_enforce_rate_limit)],
+)
 def ingest_otel_logs(payload: dict) -> JSONResponse:
     max_events = _positive_int_env("SENTINEL_OTEL_MAX_EVENTS", 3)
     events = otel_normalizer.normalize(payload, max_events=max_events)

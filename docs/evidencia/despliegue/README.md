@@ -57,7 +57,9 @@ con el commit `cda83b6`; su salida pública está en `07-root-render.txt`. Devue
 - `historical_context` usa los incidentes de ejemplo de `InMemoryRepository`; no hay
   persistencia real en Neon todavía.
 - El estado se pierde cuando Render reinicia o duerme el servicio.
-- El endpoint `/events` no tiene autenticación ni rate limiting.
+- En la fecha de la captura, `/events` no tenía rate limiting. Desde el 2026-11-15 los
+  endpoints de ingesta aceptan rate limiting configurable y el dashboard operativo está
+  disponible en `/dashboard`.
 - Render Free duerme tras 15 minutos sin tráfico; la primera petición puede tardar
   cerca de un minuto.
 - Groq free tier: 30 RPM, 1.000 req/día, 8K TPM y 200K tokens/día por modelo.

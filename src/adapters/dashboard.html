@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SentinelAI | Dashboard en vivo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f14;
+      --panel: #121820;
+      --panel-2: #17212b;
+      --text: #e6edf3;
+      --muted: #8b98a5;
+      --border: #243140;
+      --accent: #4cc9f0;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    header {
+      padding: 28px 32px 20px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #101a24, #0b0f14 60%);
+    }
+    h1 { margin: 0; font-size: 26px; letter-spacing: 0.4px; }
+    .subtitle { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .updated { margin-left: 12px; color: var(--muted); font-size: 12px; }
+    .live {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .live::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--warn);
+    }
+    .live.ok::before { background: var(--ok); }
+    .live.error::before { background: var(--bad); }
+    main { padding: 24px 32px 40px; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .card-label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    .card-value { font-size: 28px; font-weight: 650; margin-top: 8px; }
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+    th, td {
+      text-align: left;
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      font-size: 13px;
+    }
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: var(--panel-2);
+      position: sticky;
+      top: 0;
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #151e27; }
+    .message, .root-cause {
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .badge.anomaly { color: #ffb4ae; background: #3a1618; border-color: #6e2327; }
+    .badge.normal { color: #9be9a8; background: #12261a; border-color: #1f4d2d; }
+    .badge.rejected { color: #f2cc60; background: #2b2410; border-color: #5b4a17; }
+    .score { font-variant-numeric: tabular-nums; }
+    .empty { color: var(--muted); text-align: center; padding: 28px; }
+    .error { margin-top: 16px; color: var(--bad); font-size: 13px; }
+    @media (max-width: 700px) {
+      header, main { padding-left: 18px; padding-right: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SentinelAI</h1>
+    <p class="subtitle">Observabilidad autonoma y diagnostico de incidentes</p>
+    <span id="status" class="live">Conectando</span>
+    <span class="updated">Actualizado: <span id="last-update">-</span></span>
+  </header>
+  <main>
+    <section class="cards" aria-label="Metricas del dashboard">
+      <article class="card">
+        <div class="card-label">Eventos recientes</div>
+        <div class="card-value" id="total">0</div>
+      </article>
+      <article class="card">
+        <div class="card-label">Anomalias</div>
+        <div class="card-value" id="anomalies">0</div>
+      </article>
+      <article class="card">
+        <div class="card-label">Rechazados</div>
+        <div class="card-value" id="rejected">0</div>
+      </article>
+      <article class="card">
+        <div class="card-label">Score promedio</div>
+        <div class="card-value" id="average">0.00</div>
+      </article>
+    </section>
+    <section class="table-wrap" aria-label="Ultimos eventos procesados">
+      <table>
+        <thead>
+          <tr>
+            <th>Hora</th>
+            <th>Servicio</th>
+            <th>Nivel</th>
+            <th>Mensaje</th>
+            <th>Estado</th>
+            <th>Score</th>
+            <th>Diagnostico</th>
+          </tr>
+        </thead>
+        <tbody id="events"></tbody>
+      </table>
+    </section>
+    <p id="error" class="error" hidden></p>
+  </main>
+  <script>
+    const REFRESH_MS = 2000;
+    const eventsBody = document.getElementById("events");
+    const status = document.getElementById("status");
+    const lastUpdate = document.getElementById("last-update");
+    const errorLine = document.getElementById("error");
+
+    function formatTime(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return "-";
+      }
+      return date.toLocaleTimeString("es-CO", { hour12: false });
+    }
+
+    function appendCell(row, text, className) {
+      const cell = document.createElement("td");
+      cell.textContent = text || "-";
+      if (className) {
+        cell.className = className;
+      }
+      row.appendChild(cell);
+      return cell;
+    }
+
+    function statusBadge(event) {
+      const badge = document.createElement("span");
+      if (!event.sanitization_ok) {
+        badge.className = "badge rejected";
+        badge.textContent = "Rechazado";
+      } else if (event.is_anomaly) {
+        badge.className = "badge anomaly";
+        badge.textContent = "Anomalia";
+      } else {
+        badge.className = "badge normal";
+        badge.textContent = "Normal";
+      }
+      return badge;
+    }
+
+    function render(events) {
+      eventsBody.replaceChildren();
+      if (!events.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 7;
+        cell.className = "empty";
+        cell.textContent = "Sin eventos todavia. Envia telemetria a /events o /ingest/otel/v1/logs.";
+        row.appendChild(cell);
+        eventsBody.appendChild(row);
+        return;
+      }
+      for (const event of events) {
+        const row = document.createElement("tr");
+        appendCell(row, formatTime(event.timestamp));
+        appendCell(row, event.service_name);
+        appendCell(row, event.log_level);
+        const message = appendCell(row, event.message, "message");
+        message.title = event.message || "";
+        const statusCell = document.createElement("td");
+        statusCell.appendChild(statusBadge(event));
+        row.appendChild(statusCell);
+        appendCell(row, Number(event.anomaly_score || 0).toFixed(2), "score");
+        const rootCause = appendCell(row, event.root_cause || "-", "root-cause");
+        if (event.runbook_steps && event.runbook_steps.length) {
+          rootCause.title = event.runbook_steps.join(" | ");
+        }
+        eventsBody.appendChild(row);
+      }
+    }
+
+    function updateCards(events) {
+      const anomalies = events.filter((event) => event.is_anomaly).length;
+      const rejected = events.filter((event) => !event.sanitization_ok).length;
+      const totalScore = events.reduce(
+        (total, event) => total + Number(event.anomaly_score || 0),
+        0
+      );
+      document.getElementById("total").textContent = String(events.length);
+      document.getElementById("anomalies").textContent = String(anomalies);
+      document.getElementById("rejected").textContent = String(rejected);
+      document.getElementById("average").textContent = events.length
+        ? (totalScore / events.length).toFixed(2)
+        : "0.00";
+    }
+
+    async function loadEvents() {
+      try {
+        const response = await fetch("/dashboard/events?limit=50", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        const payload = await response.json();
+        const events = payload.events || [];
+        render(events);
+        updateCards(events);
+        status.textContent = "En vivo";
+        status.className = "live ok";
+        lastUpdate.textContent = new Date().toLocaleTimeString("es-CO", { hour12: false });
+        errorLine.hidden = true;
+      } catch (error) {
+        status.textContent = "Sin conexion";
+        status.className = "live error";
+        errorLine.textContent = "No se pudo actualizar el dashboard: " + error.message;
+        errorLine.hidden = false;
+      }
+    }
+
+    loadEvents();
+    window.setInterval(loadEvents, REFRESH_MS);
+  </script>
+</body>
+</html>

@@ -18,11 +18,12 @@ Plataforma inteligente de observabilidad y resolución de incidentes agéntica b
 - [x] **Fase 1:** Core agéntico, persistencia en memoria y pruebas
 - [x] **Fase 2:** Diagnóstico con LLM y structured output
 - [x] **Fase 3:** RAG y enriquecimiento de contexto con Neon/pgvector y Gemini
-- [ ] **Fase 4:** Observabilidad y despliegue productivo
+- [x] **Fase 4:** Observabilidad y despliegue productivo
   - [x] Ingesta de logs OTel Demo con filtro, dedup y límite de eventos
   - [x] Trazabilidad real con Langfuse (`SENTINEL_OBSERVABILITY_PROVIDER=langfuse`)
   - [x] Cola QStash para desacoplar la ingesta OTLP (`SENTINEL_QUEUE_PROVIDER=qstash`)
-  - [ ] Dashboard en tiempo real
+  - [x] Dashboard operativo en `/dashboard` con refresco cada 2 segundos
+  - [x] Rate limiting configurable en los endpoints públicos de ingesta
 
 ## ☁️ Despliegue gratuito
 

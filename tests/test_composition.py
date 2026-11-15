@@ -2,10 +2,12 @@ import pytest
 
 from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
 from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
+from src.adapters.in_memory_event_feed import InMemoryEventFeed
 from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langchain_diagnoser import LangChainDiagnoser
 from src.adapters.langfuse_tracker import NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
+from src.adapters.rate_limiter import SlidingWindowRateLimiter
 from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
 from src.composition import (
     _load_embedding_settings,
@@ -13,7 +15,9 @@ from src.composition import (
     _load_queue_settings,
     build_diagnosis_adapter,
     build_embedding_adapter,
+    build_event_feed,
     build_observability_adapter,
+    build_rate_limiter,
     build_repository,
     build_telemetry_queue,
 )
@@ -51,6 +55,8 @@ _ENV_VARS = (
     "QSTASH_CURRENT_SIGNING_KEY",
     "QSTASH_NEXT_SIGNING_KEY",
     "SENTINEL_OTEL_WORKER_URL",
+    "SENTINEL_DASHBOARD_MAX_EVENTS",
+    "SENTINEL_RATE_LIMIT_PER_MINUTE",
 )
 
 
@@ -342,6 +348,47 @@ def test_qstash_queue_builds_adapter(monkeypatch):
     assert settings.base_url == "https://qstash.example.com"
     assert isinstance(queue, QStashTelemetryQueue)
     assert queue.is_remote is True
+
+
+def test_default_event_feed_is_bounded_in_memory(monkeypatch):
+    _clear_llm_env(monkeypatch)
+
+    feed = build_event_feed()
+
+    assert isinstance(feed, InMemoryEventFeed)
+    assert feed.recent() == []
+
+
+def test_event_feed_rejects_non_positive_capacity(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_DASHBOARD_MAX_EVENTS", "0")
+
+    with pytest.raises(ValueError, match="SENTINEL_DASHBOARD_MAX_EVENTS"):
+        build_event_feed()
+
+
+def test_default_rate_limiter_is_enabled(monkeypatch):
+    _clear_llm_env(monkeypatch)
+
+    limiter = build_rate_limiter()
+
+    assert isinstance(limiter, SlidingWindowRateLimiter)
+    assert limiter.limit == 120
+
+
+def test_rate_limiter_can_be_disabled(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_RATE_LIMIT_PER_MINUTE", "0")
+
+    assert build_rate_limiter() is None
+
+
+def test_rate_limiter_rejects_negative_limit(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_RATE_LIMIT_PER_MINUTE", "-1")
+
+    with pytest.raises(ValueError, match="SENTINEL_RATE_LIMIT_PER_MINUTE"):
+        build_rate_limiter()
 
 
 def test_default_embedding_provider_is_disabled(monkeypatch):

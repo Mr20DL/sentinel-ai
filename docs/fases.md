@@ -25,7 +25,7 @@ Plan de Desarrollo por Fases: SentinelAI
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  Fase 4: Observability & Production Readiness                           │
 │  • Instrumentación con OpenTelemetry (métricas y trazas por nodo)       │
-│  • Exposición de API REST / WebSockets mediante FastAPI                 │
+│  • API REST + dashboard operativo (polling, sin WebSockets)             │
 │  • Empaquetado y ejecución con Docker / `uv`                            │
 └─────────────────────────────────────────────────────────────────────────┘
 Detalles de cada Fase
@@ -79,7 +79,12 @@ Fase 4: Observabilidad y Despliegue
    Cola QStash para desacoplar la ingesta OTLP del procesamiento, seleccionable con
    `SENTINEL_QUEUE_PROVIDER=qstash`; `inline` sigue siendo el default local.
 
-   Estado: cerrada el 2026-11-05, integración Langfuse completada el 2026-11-09 y cola
-   QStash completada el 2026-11-13.
+   Dashboard operativo en `/dashboard` respaldado por un feed en memoria y consultado
+   cada 2 segundos. Rate limiting deslizante por cliente en `/events` y
+   `/ingest/otel/v1/logs`, configurable con `SENTINEL_RATE_LIMIT_PER_MINUTE`.
+
+   Estado: cerrada el 2026-11-05, integración Langfuse completada el 2026-11-09, cola
+   QStash completada el 2026-11-13 y dashboard/rate limiting completados el 2026-11-15.
    Evidencia OTel:
    [`docs/evidencia/fase4-otel/README.md`](evidencia/fase4-otel/README.md).
+   Evidencia dashboard: [`docs/evidencia/fase4-dashboard/README.md`](evidencia/fase4-dashboard/README.md).

@@ -34,11 +34,15 @@ La Fase 4 agrega:
 - `NoopTracker` como default para desarrollo y tests, sin llamadas de red.
 - Cola Upstash QStash para desacoplar la ingesta OTLP mediante
   `SENTINEL_QUEUE_PROVIDER=qstash`; `inline` sigue siendo el default local.
+- Dashboard operativo en `/dashboard`: feed en memoria de los ultimos eventos, score de
+  anomalia, severidad, causa raiz y runbook, actualizado cada 2 segundos.
+- Rate limiting deslizante por cliente en `/events` y `/ingest/otel/v1/logs`, configurable
+  con `SENTINEL_RATE_LIMIT_PER_MINUTE` (`0` lo desactiva).
 
 Lo que sigue sin implementarse de fases posteriores:
 
-- Dashboard en tiempo real.
-- Autenticacion y rate limiting del endpoint publico.
+- Metricas y trazas OTLP; el MVP actual procesa solo logs.
+- Rate limiting distribuido entre varias instancias y autenticacion multiinquilino.
 
 Si `DATABASE_URL` no esta configurado, la API sigue usando `InMemoryRepository` y el
 estado se pierde al reiniciar. Para persistencia real, configura Neon y ejecuta el seed.
@@ -163,6 +167,16 @@ En la respuesta revisa:
 
 Si aparece el mensaje de fallback heuristico en `audit_logs`, el proveedor fallo y el
 sistema respondio de forma controlada. Revisa la seccion de troubleshooting.
+
+El evento procesado tambien aparece en el dashboard operativo:
+
+```text
+http://127.0.0.1:8000/dashboard
+```
+
+La pagina consulta `GET /dashboard/events?limit=50` cada 2 segundos. El feed vive en
+memoria, conserva 100 eventos por defecto (`SENTINEL_DASHBOARD_MAX_EVENTS`) y se reinicia
+con el proceso.
 
 ## 5. Variables por proveedor
 
@@ -459,6 +473,8 @@ SENTINEL_EMBEDDING_PROVIDER=gemini
 SENTINEL_EMBEDDING_MODEL=gemini-embedding-2
 SENTINEL_EMBEDDING_DIMENSIONS=384
 GEMINI_API_KEY=...
+SENTINEL_DASHBOARD_MAX_EVENTS=100
+SENTINEL_RATE_LIMIT_PER_MINUTE=120
 ```
 
 Despues del despliegue, dispara un incidente critico. Si Neon esta sembrado,
@@ -590,7 +606,29 @@ entrega es at-least-once: un evento puede procesarse mas de una vez si QStash no
 la confirmacion. El plan gratuito permite 1.000 entregas por dia (los reintentos cuentan)
 y 1 MB por mensaje.
 
-### 13.6 Limites y siguientes pasos
+### 13.6 Dashboard y rate limiting
+
+`GET /dashboard` sirve la vista operativa y `GET /dashboard/events?limit=50` entrega los
+ultimos eventos procesados como JSON. El dashboard muestra estado de sanitizacion,
+anomalia, severidad, score, causa raiz y runbook. No requiere autenticacion porque es de
+solo lectura y no expone payloads completos.
+
+El rate limiting se aplica a `/events` y `/ingest/otel/v1/logs` con una ventana
+deslizante de 60 segundos por cliente:
+
+```dotenv
+SENTINEL_RATE_LIMIT_PER_MINUTE=120
+SENTINEL_DASHBOARD_MAX_EVENTS=100
+```
+
+- `120` es el limite por defecto; `0` desactiva el rate limiting.
+- Al excederlo, la API responde `429` con `Retry-After: 60`.
+- La clave del cliente sale del primer valor de `X-Forwarded-For` (Render lo agrega) o
+  de la IP directa si el header no existe.
+- El limite y el feed son por proceso: se reinician al desplegar y no se comparten entre
+  instancias. Para varias instancias se necesita Redis o un gateway dedicado.
+
+### 13.7 Limites y siguientes pasos
 
 - Solo se procesan logs `ERROR`, `CRITICAL` o `FATAL`. Un `WARN` como el de
   `paymentFailure` no se ingiere; el impacto se observa en el `ERROR`/`CRITICAL` de
@@ -620,5 +658,8 @@ y 1 MB por mensaje.
       (`200 OK`) y SentinelAI procesa al menos un evento critico.
 - [ ] Si `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`, las trazas de los nodos aparecen en
       Langfuse; con `noop`, no se envia nada.
-- [ ] Puedes explicar que Neon/pgvector, Gemini Embeddings y la ingesta OTel Demo estan
-      activos, y que QStash y Langfuse quedan opt-in; el dashboard sigue pendiente.
+- [ ] `GET /dashboard` carga y el evento critico aparece en la tabla sin recargar la
+      pagina.
+- [ ] Exceder `SENTINEL_RATE_LIMIT_PER_MINUTE` devuelve `429` con `Retry-After: 60`.
+- [ ] Puedes explicar que Neon/pgvector, Gemini Embeddings, la ingesta OTel Demo, el
+      dashboard y el rate limiting estan activos, y que QStash y Langfuse quedan opt-in.

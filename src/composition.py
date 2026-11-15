@@ -7,13 +7,16 @@ from urllib.parse import urlparse
 from src.adapters.console_notifier import ConsoleNotifier
 from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
 from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
+from src.adapters.in_memory_event_feed import InMemoryEventFeed
 from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langfuse_tracker import LangfuseTracker, NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
+from src.adapters.rate_limiter import SlidingWindowRateLimiter
 from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
 from src.domain.state import TelemetryEvent
 from src.ports.diagnosis import DiagnosisPort
 from src.ports.embeddings import EmbeddingPort
+from src.ports.event_feed import EventFeedPort
 from src.ports.observability import ObservabilityPort
 from src.ports.queue import TelemetryQueuePort
 from src.ports.repository import IncidentRepositoryPort
@@ -284,6 +287,24 @@ def build_telemetry_queue(processor: Callable[[TelemetryEvent], object]) -> Tele
         next_signing_key=settings.next_signing_key,
         base_url=settings.base_url,
     )
+
+
+def build_event_feed() -> EventFeedPort:
+    """Build the bounded in-memory feed used by the live dashboard."""
+    max_events = _env_int("SENTINEL_DASHBOARD_MAX_EVENTS", 100)
+    if max_events <= 0:
+        raise ValueError("SENTINEL_DASHBOARD_MAX_EVENTS must be greater than zero")
+    return InMemoryEventFeed(max_events=max_events)
+
+
+def build_rate_limiter() -> SlidingWindowRateLimiter | None:
+    """Build the ingest rate limiter, or None when it is disabled."""
+    limit = _env_int("SENTINEL_RATE_LIMIT_PER_MINUTE", 120)
+    if limit < 0:
+        raise ValueError("SENTINEL_RATE_LIMIT_PER_MINUTE cannot be negative")
+    if limit == 0:
+        return None
+    return SlidingWindowRateLimiter(limit=limit)
 
 
 def build_observability_adapter() -> ObservabilityPort:

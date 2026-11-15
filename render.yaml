@@ -38,6 +38,10 @@ services:
         value: "3"
       - key: SENTINEL_OTEL_DEDUP_TTL
         value: "60"
+      - key: SENTINEL_DASHBOARD_MAX_EVENTS
+        value: "100"
+      - key: SENTINEL_RATE_LIMIT_PER_MINUTE
+        value: "120"
       - key: SENTINEL_QUEUE_PROVIDER
         value: inline
       - key: QSTASH_TOKEN

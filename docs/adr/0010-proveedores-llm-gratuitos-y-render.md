@@ -54,9 +54,17 @@ el dominio aislado de la infraestructura.
   - El endpoint sigue sin autenticacion; es apto para demo, no para produccion real.
   - La persistencia, el RAG y la observabilidad real siguen pendientes de Fase 3/4.
 
+## Actualizacion
+
+Desde el 2026-11-15 los endpoints de ingesta aceptan `SENTINEL_INGEST_API_KEY` y aplican
+rate limiting configurable (`ADR-0015`). El dashboard operativo queda documentado en
+`ADR-0014`. La advertencia original sobre el uso exclusivo para demo sigue vigente.
+
 ## Links
 
 - [ADR-0003: Infraestructura serverless](0003-infraestructura-serverless.md)
+- [ADR-0014: Dashboard operativo](0014-dashboard-tiempo-real.md)
+- [ADR-0015: Rate limiting de ingesta](0015-rate-limiting-ingesta.md)
 - [ADR-0005: Structured output](0005-structured-output.md)
 - [ADR-0009: Diagnostico con LLM](0009-llm-diagnosis-port.md)
 - [Guia de LLM gratis y despliegue](../guia_llm_gratis_y_despliegue.md)

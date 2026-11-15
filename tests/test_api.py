@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 from src.adapters.fastapi_app import app
+from src.adapters.in_memory_event_feed import InMemoryEventFeed
+from src.adapters.rate_limiter import SlidingWindowRateLimiter
 
 client = TestClient(app)
 
@@ -21,6 +23,64 @@ def test_root_endpoint_describes_service():
     assert body["events"] == "/events"
     assert body["otel_logs"] == "/ingest/otel/v1/logs"
     assert body["otel_worker"] == "/internal/otel/process"
+    assert body["dashboard"] == "/dashboard"
+    assert body["dashboard_events"] == "/dashboard/events"
+
+
+def test_dashboard_page_is_served():
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "SentinelAI" in response.text
+    assert "/dashboard/events?limit=50" in response.text
+
+
+def test_dashboard_events_returns_processed_events(monkeypatch):
+    feed = InMemoryEventFeed()
+    monkeypatch.setattr("src.adapters.fastapi_app.event_feed", feed)
+    payload = {
+        "id": 810001,
+        "service_name": "payment-service",
+        "environment": "production",
+        "timestamp": "2026-10-06T16:00:00Z",
+        "log_level": "CRITICAL",
+        "message": "Connection failure to payment gateway API.",
+        "metrics": {"cpu": 95.5, "error_rate": 0.45},
+    }
+
+    assert client.post("/events", json=payload).status_code == 200
+    response = client.get("/dashboard/events?limit=10")
+
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert len(events) == 1
+    assert events[0]["event_id"] == 810001
+    assert events[0]["is_anomaly"] is True
+    assert events[0]["severity"] == "critical"
+    assert events[0]["root_cause"]
+
+
+def test_rate_limit_rejects_excess_requests(monkeypatch):
+    monkeypatch.setattr(
+        "src.adapters.fastapi_app.rate_limiter",
+        SlidingWindowRateLimiter(limit=1),
+    )
+    payload = {
+        "id": 810002,
+        "service_name": "payment-service",
+        "environment": "production",
+        "timestamp": "2026-10-06T16:00:00Z",
+        "log_level": "CRITICAL",
+        "message": "Connection failure to payment gateway API.",
+        "metrics": {"cpu": 95.5, "error_rate": 0.45},
+    }
+
+    first = client.post("/events", json=payload)
+    second = client.post("/events", json=payload)
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.headers["Retry-After"] == "60"
 
 
 def test_ingest_anomaly_event():

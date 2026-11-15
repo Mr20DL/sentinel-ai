@@ -124,10 +124,13 @@ El consumo se modela como eventos `TelemetryEvent` (id, servicio, entorno, times
 - Evaluación de anomalía basada en nivel del log + umbral de métricas (CPU / error rate).
 - Diagnóstico de causa raíz y acción recomendada con **esquemas estructurados (Pydantic v2 / Structured Output)**.
 - Auditoría acumulada (`audit_logs`) con reducers de LangGraph.
-- Trazabilidad de decisiones (adaptador Langfuse previsto), sanitización de ingesta (Zero Trust) y entorno reproducible (Dev Containers).
-- Suite de pruebas unitarias sobre las rutas anómala y normal del grafo.
+- Trazabilidad de decisiones (adaptador Langfuse), sanitización de ingesta (Zero Trust) y entorno reproducible (Dev Containers).
+- Dashboard operativo en `/dashboard` con feed de eventos, anomalías, severidad y runbook.
+- Rate limiting configurable para los endpoints públicos de ingesta.
+- Suite de pruebas unitarias sobre las rutas anómala, normal, zero trust y entradas malformadas.
+- Despliegue serverless en Render Free con QStash y Langfuse opt-in.
 
-**No incluido (fases posteriores):** integración real con proveedores de pago, autenticación multiinquilino, dashboard web y despliegue productivo en la nube (queda el diseño serverless documentado).
+**No incluido (fases posteriores):** integración real con proveedores de pago, autenticación multiinquilino, métricas y trazas OTLP, rate limiting distribuido entre instancias y acuerdos de nivel de servicio productivos.
 
 ## 10. Criterios de validación con el profesor
 
