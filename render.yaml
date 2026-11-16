@@ -42,6 +42,20 @@ services:
         value: "100"
       - key: SENTINEL_RATE_LIMIT_PER_MINUTE
         value: "120"
+      - key: SENTINEL_DASHBOARD_USER
+        sync: false
+      - key: SENTINEL_DASHBOARD_PASSWORD
+        sync: false
+      - key: SENTINEL_NOTIFIER_PROVIDER
+        value: console
+      - key: SENTINEL_NOTIFIER_WEBHOOK_URL
+        sync: false
+      - key: SENTINEL_NOTIFIER_TIMEOUT
+        value: "5"
+      - key: SENTINEL_NOTIFIER_MAX_RETRIES
+        value: "2"
+      - key: SENTINEL_NOTIFIER_BACKOFF_SECONDS
+        value: "0.5"
       - key: SENTINEL_QUEUE_PROVIDER
         value: qstash
       - key: QSTASH_TOKEN

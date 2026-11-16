@@ -86,6 +86,11 @@ class _FailingDiagnoser:
         raise RuntimeError("diagnosis provider unavailable")
 
 
+class _FailingNotifier:
+    def send(self, channel: str, message: str) -> None:
+        raise RuntimeError("webhook unavailable")
+
+
 @pytest.fixture
 def graph():
     return create_sentinel_graph()
@@ -334,6 +339,30 @@ def test_response_node_falls_back_when_diagnoser_fails():
 
     assert result["diagnosis"].root_cause == "Critical log level detected in payment-service"
     assert "fallback" in result["audit_logs"][0]
+
+
+def test_response_node_survives_notifier_failure():
+    node = create_response_node(notifier=_FailingNotifier())
+    event = _event(log_level="CRITICAL")
+    analysis = AnomalyAnalysisOutput(
+        is_anomaly=True,
+        anomaly_score=0.9,
+        severity="critical",
+        reasoning="Log level 'CRITICAL' is critical/high severity.",
+    )
+
+    result = node(
+        {
+            "raw_event": event,
+            "is_anomaly": True,
+            "anomaly_output": analysis,
+            "historical_context": [],
+        }
+    )
+
+    assert result["diagnosis"].root_cause
+    assert result["notification_sent"] is False
+    assert any("Notification failed" in entry for entry in result["audit_logs"])
 
 
 def test_graph_survives_tracker_failure():

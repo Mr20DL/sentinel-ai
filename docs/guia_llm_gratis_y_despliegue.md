@@ -654,7 +654,34 @@ SENTINEL_DASHBOARD_MAX_EVENTS=100
 - El limite y el feed son por proceso: se reinician al desplegar y no se comparten entre
   instancias. Para varias instancias se necesita Redis o un gateway dedicado.
 
-### 13.8 Limites y siguientes pasos
+### 13.8 Notificador y auth del dashboard
+
+Por defecto las notificaciones se imprimen en consola. Para enviarlas a un Incoming
+Webhook compatible con Slack:
+
+```dotenv
+SENTINEL_NOTIFIER_PROVIDER=webhook
+SENTINEL_NOTIFIER_WEBHOOK_URL=https://hooks.slack.com/services/tu-webhook
+SENTINEL_NOTIFIER_TIMEOUT=5
+SENTINEL_NOTIFIER_MAX_RETRIES=2
+SENTINEL_NOTIFIER_BACKOFF_SECONDS=0.5
+```
+
+El adaptador envia `{"text": "[ops-oncall] ..."}`, reintenta `429`/`5xx` y errores de red
+con backoff exponencial. Si falla tras los reintentos, el grafo conserva el diagnostico y
+marca `notification_sent: false`. La URL del webhook es un secreto: no la versiones.
+
+Para proteger el dashboard:
+
+```dotenv
+SENTINEL_DASHBOARD_USER=ops
+SENTINEL_DASHBOARD_PASSWORD=tu_password
+```
+
+Si ambas variables existen, `/dashboard` y `/dashboard/events` exigen HTTP Basic. Si solo
+se define una, responden `503`. Sin ambas, el dashboard queda publico para la demo.
+
+### 13.9 Limites y siguientes pasos
 
 - Solo se procesan logs `ERROR`, `CRITICAL` o `FATAL`. Un `WARN` como el de
   `paymentFailure` no se ingiere; el impacto se observa en el `ERROR`/`CRITICAL` de

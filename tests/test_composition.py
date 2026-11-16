@@ -1,5 +1,6 @@
 import pytest
 
+from src.adapters.console_notifier import ConsoleNotifier
 from src.adapters.gemini_embeddings import GeminiEmbeddingAdapter
 from src.adapters.heuristic_diagnoser import HeuristicDiagnoser
 from src.adapters.in_memory_event_feed import InMemoryEventFeed
@@ -9,6 +10,7 @@ from src.adapters.langfuse_tracker import NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
 from src.adapters.rate_limiter import SlidingWindowRateLimiter
 from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
+from src.adapters.webhook_notifier import WebhookNotifier
 from src.composition import (
     _load_embedding_settings,
     _load_llm_settings,
@@ -16,6 +18,7 @@ from src.composition import (
     build_diagnosis_adapter,
     build_embedding_adapter,
     build_event_feed,
+    build_notifier,
     build_observability_adapter,
     build_rate_limiter,
     build_repository,
@@ -57,6 +60,13 @@ _ENV_VARS = (
     "SENTINEL_OTEL_WORKER_URL",
     "SENTINEL_DASHBOARD_MAX_EVENTS",
     "SENTINEL_RATE_LIMIT_PER_MINUTE",
+    "SENTINEL_NOTIFIER_PROVIDER",
+    "SENTINEL_NOTIFIER_WEBHOOK_URL",
+    "SENTINEL_NOTIFIER_TIMEOUT",
+    "SENTINEL_NOTIFIER_MAX_RETRIES",
+    "SENTINEL_NOTIFIER_BACKOFF_SECONDS",
+    "SENTINEL_DASHBOARD_USER",
+    "SENTINEL_DASHBOARD_PASSWORD",
 )
 
 
@@ -348,6 +358,67 @@ def test_qstash_queue_builds_adapter(monkeypatch):
     assert settings.base_url == "https://qstash.example.com"
     assert isinstance(queue, QStashTelemetryQueue)
     assert queue.is_remote is True
+
+
+def test_default_notifier_is_console(monkeypatch):
+    _clear_llm_env(monkeypatch)
+
+    assert isinstance(build_notifier(), ConsoleNotifier)
+
+
+def test_webhook_notifier_requires_url(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_NOTIFIER_PROVIDER", "webhook")
+
+    with pytest.raises(RuntimeError, match="SENTINEL_NOTIFIER_WEBHOOK_URL"):
+        build_notifier()
+
+
+def test_webhook_notifier_rejects_invalid_url(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_NOTIFIER_PROVIDER", "webhook")
+    monkeypatch.setenv("SENTINEL_NOTIFIER_WEBHOOK_URL", "not-a-url")
+
+    with pytest.raises(ValueError, match="SENTINEL_NOTIFIER_WEBHOOK_URL"):
+        build_notifier()
+
+
+def test_webhook_notifier_builds_adapter(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_NOTIFIER_PROVIDER", "slack")
+    monkeypatch.setenv("SENTINEL_NOTIFIER_WEBHOOK_URL", "https://hooks.example/sentinel")
+    monkeypatch.setenv("SENTINEL_NOTIFIER_TIMEOUT", "3")
+    monkeypatch.setenv("SENTINEL_NOTIFIER_MAX_RETRIES", "4")
+    monkeypatch.setenv("SENTINEL_NOTIFIER_BACKOFF_SECONDS", "0.1")
+
+    notifier = build_notifier()
+
+    assert isinstance(notifier, WebhookNotifier)
+
+
+def test_unknown_notifier_provider_is_rejected(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("SENTINEL_NOTIFIER_PROVIDER", "pagerduty")
+
+    with pytest.raises(ValueError, match="SENTINEL_NOTIFIER_PROVIDER"):
+        build_notifier()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("SENTINEL_NOTIFIER_TIMEOUT", "0"),
+        ("SENTINEL_NOTIFIER_MAX_RETRIES", "-1"),
+        ("SENTINEL_NOTIFIER_BACKOFF_SECONDS", "-0.1"),
+    ],
+    ids=["timeout-zero", "retries-negative", "backoff-negative"],
+)
+def test_invalid_notifier_settings_are_rejected(monkeypatch, name, value):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=name):
+        build_notifier()
 
 
 def test_default_event_feed_is_bounded_in_memory(monkeypatch):

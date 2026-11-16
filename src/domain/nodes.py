@@ -171,13 +171,21 @@ def create_response_node(
             fallback_used = diagnoser is not None
 
         notification_sent = False
+        notification_entry = "[ResponseNode] No notification required."
         if is_anomaly and notifier:
             message = (
                 f"[{event.service_name}] {report.root_cause} -> "
                 f"{report.recommended_action}"
             )
-            notifier.send("ops-oncall", message)
-            notification_sent = True
+            try:
+                notifier.send("ops-oncall", message)
+                notification_sent = True
+                notification_entry = "[ResponseNode] Notification sent to 'ops-oncall'."
+            except Exception as exc:
+                notification_entry = (
+                    "[ResponseNode] Notification failed "
+                    f"({type(exc).__name__}); diagnosis preserved."
+                )
 
         audit_entry = (
             "[ResponseNode] Diagnosis provider unavailable; heuristic fallback used."
@@ -189,7 +197,7 @@ def create_response_node(
             "root_cause_analysis": report.root_cause,
             "recommended_action": report.recommended_action,
             "notification_sent": notification_sent,
-            "audit_logs": [audit_entry],
+            "audit_logs": [audit_entry, notification_entry],
         }
 
     return response_node

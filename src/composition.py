@@ -13,10 +13,12 @@ from src.adapters.langfuse_tracker import LangfuseTracker, NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
 from src.adapters.rate_limiter import SlidingWindowRateLimiter
 from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
+from src.adapters.webhook_notifier import WebhookNotifier
 from src.domain.state import TelemetryEvent
 from src.ports.diagnosis import DiagnosisPort
 from src.ports.embeddings import EmbeddingPort
 from src.ports.event_feed import EventFeedPort
+from src.ports.notifier import NotifierPort
 from src.ports.observability import ObservabilityPort
 from src.ports.queue import TelemetryQueuePort
 from src.ports.repository import IncidentRepositoryPort
@@ -69,6 +71,15 @@ class QueueSettings:
     current_signing_key: str
     next_signing_key: str
     base_url: str | None
+
+
+@dataclass(frozen=True)
+class NotifierSettings:
+    provider: str
+    webhook_url: str
+    timeout: float
+    max_retries: int
+    backoff_seconds: float
 
 
 def _env_float(name: str, default: float) -> float:
@@ -289,6 +300,61 @@ def build_telemetry_queue(processor: Callable[[TelemetryEvent], object]) -> Tele
     )
 
 
+def _load_notifier_settings() -> NotifierSettings:
+    provider = os.getenv("SENTINEL_NOTIFIER_PROVIDER", "console").strip().lower()
+    timeout = _env_float("SENTINEL_NOTIFIER_TIMEOUT", 5.0)
+    max_retries = _env_int("SENTINEL_NOTIFIER_MAX_RETRIES", 2)
+    backoff_seconds = _env_float("SENTINEL_NOTIFIER_BACKOFF_SECONDS", 0.5)
+    if timeout <= 0:
+        raise ValueError("SENTINEL_NOTIFIER_TIMEOUT must be greater than zero")
+    if max_retries < 0:
+        raise ValueError("SENTINEL_NOTIFIER_MAX_RETRIES cannot be negative")
+    if backoff_seconds < 0:
+        raise ValueError("SENTINEL_NOTIFIER_BACKOFF_SECONDS cannot be negative")
+
+    if provider in {"", "console", "log", "none"}:
+        return NotifierSettings(
+            provider="console",
+            webhook_url="",
+            timeout=timeout,
+            max_retries=max_retries,
+            backoff_seconds=backoff_seconds,
+        )
+    if provider not in {"webhook", "slack"}:
+        raise ValueError(f"Unsupported SENTINEL_NOTIFIER_PROVIDER: {provider}")
+
+    webhook_url = os.getenv("SENTINEL_NOTIFIER_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        raise RuntimeError(
+            "SENTINEL_NOTIFIER_WEBHOOK_URL is required when "
+            "SENTINEL_NOTIFIER_PROVIDER=webhook"
+        )
+    parsed = urlparse(webhook_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("SENTINEL_NOTIFIER_WEBHOOK_URL must be a valid http(s) URL")
+
+    return NotifierSettings(
+        provider="webhook",
+        webhook_url=webhook_url,
+        timeout=timeout,
+        max_retries=max_retries,
+        backoff_seconds=backoff_seconds,
+    )
+
+
+def build_notifier() -> NotifierPort:
+    """Select console output or a retrying webhook notifier from the environment."""
+    settings = _load_notifier_settings()
+    if settings.provider == "console":
+        return ConsoleNotifier()
+    return WebhookNotifier(
+        settings.webhook_url,
+        timeout=settings.timeout,
+        max_retries=settings.max_retries,
+        backoff_seconds=settings.backoff_seconds,
+    )
+
+
 def build_event_feed() -> EventFeedPort:
     """Build the bounded in-memory feed used by the live dashboard."""
     max_events = _env_int("SENTINEL_DASHBOARD_MAX_EVENTS", 100)
@@ -352,7 +418,7 @@ def build_default_components() -> dict:
     """Composition root: adaptadores por defecto para desarrollo (hexagonal)."""
     return {
         "repository": build_repository(),
-        "notifier": ConsoleNotifier(),
+        "notifier": build_notifier(),
         "tracker": build_observability_adapter(),
         "diagnoser": build_diagnosis_adapter(),
     }

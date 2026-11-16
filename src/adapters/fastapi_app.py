@@ -1,10 +1,12 @@
 import os
 import secrets
 import uuid
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import ValidationError
 
 from src.adapters.dashboard_page import DASHBOARD_HTML
@@ -21,6 +23,7 @@ app = FastAPI(
 
 engine = create_sentinel_graph()
 event_feed = build_event_feed()
+dashboard_security = HTTPBasic(auto_error=False)
 
 
 def _build_thread_id(event: TelemetryEvent) -> str:
@@ -69,6 +72,35 @@ def _verify_ingest_key(
         raise HTTPException(status_code=401, detail="Invalid ingest key")
 
 
+def _verify_dashboard_auth(
+    credentials: Annotated[
+        HTTPBasicCredentials | None, Depends(dashboard_security)
+    ] = None,
+) -> None:
+    username = os.getenv("SENTINEL_DASHBOARD_USER", "").strip()
+    password = os.getenv("SENTINEL_DASHBOARD_PASSWORD", "").strip()
+    if not username and not password:
+        return
+    if not username or not password:
+        raise HTTPException(status_code=503, detail="Dashboard auth is misconfigured")
+
+    valid = (
+        credentials is not None
+        and secrets.compare_digest(
+            credentials.username.encode("utf-8"), username.encode("utf-8")
+        )
+        and secrets.compare_digest(
+            credentials.password.encode("utf-8"), password.encode("utf-8")
+        )
+    )
+    if not valid:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid dashboard credentials",
+            headers={"WWW-Authenticate": 'Basic realm="SentinelAI"'},
+        )
+
+
 def _client_key(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
@@ -105,12 +137,16 @@ def health() -> dict:
     return {"status": "ok", "service": "sentinel-ai"}
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get(
+    "/dashboard",
+    response_class=HTMLResponse,
+    dependencies=[Depends(_verify_dashboard_auth)],
+)
 def dashboard() -> HTMLResponse:
     return HTMLResponse(DASHBOARD_HTML)
 
 
-@app.get("/dashboard/events")
+@app.get("/dashboard/events", dependencies=[Depends(_verify_dashboard_auth)])
 def dashboard_events(limit: int = 50) -> JSONResponse:
     safe_limit = max(1, min(limit, 200))
     snapshots = event_feed.recent(safe_limit)

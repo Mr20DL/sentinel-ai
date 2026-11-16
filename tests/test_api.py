@@ -35,6 +35,25 @@ def test_dashboard_page_is_served():
     assert "/dashboard/events?limit=50" in response.text
 
 
+def test_dashboard_requires_basic_auth_when_configured(monkeypatch):
+    monkeypatch.setenv("SENTINEL_DASHBOARD_USER", "ops")
+    monkeypatch.setenv("SENTINEL_DASHBOARD_PASSWORD", "secret")
+
+    assert client.get("/dashboard").status_code == 401
+    assert client.get("/dashboard", auth=("ops", "wrong")).status_code == 401
+    assert client.get("/dashboard", auth=("ops", "secret")).status_code == 200
+    assert client.get("/dashboard/events", auth=("ops", "secret")).status_code == 200
+
+
+def test_dashboard_rejects_partial_auth_configuration(monkeypatch):
+    monkeypatch.setenv("SENTINEL_DASHBOARD_USER", "ops")
+    monkeypatch.delenv("SENTINEL_DASHBOARD_PASSWORD", raising=False)
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 503
+
+
 def test_dashboard_events_returns_processed_events(monkeypatch):
     feed = InMemoryEventFeed()
     monkeypatch.setattr("src.adapters.fastapi_app.event_feed", feed)

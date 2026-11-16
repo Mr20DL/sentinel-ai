@@ -24,6 +24,9 @@ Plataforma inteligente de observabilidad y resolución de incidentes agéntica b
   - [x] Cola QStash para desacoplar la ingesta OTLP (`SENTINEL_QUEUE_PROVIDER=qstash`)
   - [x] Dashboard operativo en `/dashboard` con refresco cada 2 segundos
   - [x] Rate limiting configurable en los endpoints públicos de ingesta
+  - [x] Notificador webhook con reintentos y degradación controlada
+  - [x] Autenticación opcional del dashboard con HTTP Basic
+  - [x] CI con tests, cobertura, lint, tipos, seguridad estática y auditoría de dependencias
 
 ## ☁️ Despliegue gratuito
 
