@@ -591,11 +591,15 @@ desacoplar la ingesta en Render:
 ```dotenv
 SENTINEL_QUEUE_PROVIDER=qstash
 QSTASH_TOKEN=tu_token
-QSTASH_URL=https://qstash.upstash.io
+QSTASH_URL=https://qstash-us-east-1.upstash.io
 QSTASH_CURRENT_SIGNING_KEY=tu_current_signing_key
 QSTASH_NEXT_SIGNING_KEY=tu_next_signing_key
 SENTINEL_OTEL_WORKER_URL=https://tu-servicio.onrender.com/internal/otel/process
 ```
+
+Usa el endpoint de la region del token. El endpoint global
+`https://qstash.upstash.io` puede responder `404 not found in this region` cuando el
+token pertenece a otra region; para este proyecto el token es de `us-east-1`.
 
 `SENTINEL_OTEL_WORKER_URL` debe ser la URL publica exacta que QStash invoca; se usa para
 verificar la firma. El endpoint `/internal/otel/process` rechaza solicitudes sin
@@ -606,7 +610,29 @@ entrega es at-least-once: un evento puede procesarse mas de una vez si QStash no
 la confirmacion. El plan gratuito permite 1.000 entregas por dia (los reintentos cuentan)
 y 1 MB por mensaje.
 
-### 13.6 Dashboard y rate limiting
+### 13.6 Activar Langfuse
+
+`NoopTracker` es el default y no hace llamadas de red. Para trazar el grafo en Langfuse
+Cloud:
+
+1. Crea un proyecto en <https://cloud.langfuse.com/>.
+2. Copia la public key y la secret key del proyecto.
+3. Configura estas variables en Render y redeploya:
+
+```dotenv
+SENTINEL_OBSERVABILITY_PROVIDER=langfuse
+LANGFUSE_PUBLIC_KEY=tu_public_key
+LANGFUSE_SECRET_KEY=tu_secret_key
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_TRACING_ENVIRONMENT=production
+```
+
+Si el proyecto esta en la region US, usa `https://us.cloud.langfuse.com`. Las claves van
+solo en Render Environment; no las escribas en el repositorio. Con `langfuse` activo, cada
+ejecucion genera `sentinel.incident` y una observacion por nodo
+(`ingestion_node`, `analysis_node`, `context_node`, `response_node`).
+
+### 13.7 Dashboard y rate limiting
 
 `GET /dashboard` sirve la vista operativa y `GET /dashboard/events?limit=50` entrega los
 ultimos eventos procesados como JSON. El dashboard muestra estado de sanitizacion,
@@ -628,7 +654,7 @@ SENTINEL_DASHBOARD_MAX_EVENTS=100
 - El limite y el feed son por proceso: se reinician al desplegar y no se comparten entre
   instancias. Para varias instancias se necesita Redis o un gateway dedicado.
 
-### 13.7 Limites y siguientes pasos
+### 13.8 Limites y siguientes pasos
 
 - Solo se procesan logs `ERROR`, `CRITICAL` o `FATAL`. Un `WARN` como el de
   `paymentFailure` no se ingiere; el impacto se observa en el `ERROR`/`CRITICAL` de

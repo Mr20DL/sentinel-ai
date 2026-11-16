@@ -43,7 +43,7 @@ services:
       - key: SENTINEL_RATE_LIMIT_PER_MINUTE
         value: "120"
       - key: SENTINEL_QUEUE_PROVIDER
-        value: inline
+        value: qstash
       - key: QSTASH_TOKEN
         sync: false
       - key: QSTASH_URL
@@ -55,7 +55,7 @@ services:
       - key: SENTINEL_OTEL_WORKER_URL
         sync: false
       - key: SENTINEL_OBSERVABILITY_PROVIDER
-        value: noop
+        value: langfuse
       - key: LANGFUSE_PUBLIC_KEY
         sync: false
       - key: LANGFUSE_SECRET_KEY

@@ -1,17 +1,16 @@
 # Evidencia de validacion real en Render - Fase 4
 
-- **Fecha de captura:** 2026-11-15
-- **Commit validado:** `28a44e7` (`docs: document current system architecture`)
+- **Fecha de captura inicial:** 2026-11-15
+- **Fecha de validacion remota:** 2026-11-16
+- **Commit validado:** `d783488` (`docs: record local QStash and Langfuse validation`)
 - **Commit funcional de dashboard y rate limiting:** `d438b6c`
 - **URL publica:** <https://sentinel-ai-46hj.onrender.com>
 - **Entorno:** Render Free, Docker, region Oregon
 - **LLM:** Groq, modelo `openai/gpt-oss-120b`
 - **Embeddings:** Gemini, modelo `gemini-embedding-2`, 384 dimensiones
 - **Persistencia:** Neon PostgreSQL con pgvector
-- **Cola en Render durante esta captura:** `inline`
-- **Cola validada en local:** `qstash` (`us-east-1`), pendiente de configurar en Render
-- **Observabilidad en Render durante esta captura:** `noop`
-- **Observabilidad validada en local:** `langfuse`, pendiente de configurar en Render
+- **Cola validada en Render:** `qstash` (`us-east-1`)
+- **Observabilidad validada en Render:** `langfuse`
 - **ADRs relacionados:**
   [`0014-dashboard-tiempo-real.md`](../../adr/0014-dashboard-tiempo-real.md),
   [`0015-rate-limiting-ingesta.md`](../../adr/0015-rate-limiting-ingesta.md)
@@ -28,12 +27,12 @@
 | Zero Trust | `POST /events` con mensaje vacio | Rechazado en `ingestion_node`; sin diagnostico |
 | Rate limiting | 3 POST a `/events` con limite `2` y `X-Forwarded-For` fijo | Tercera peticion `429` con `Retry-After: 60` |
 | OTLP en Render | `POST /ingest/otel/v1/logs` | `accepted: 1`, `queued: 1`, `failed: 0`; evento visible en dashboard |
-| QStash | Publicacion real desde `QStashTelemetryQueue` y verificacion de firma | Validado en local; webhook recibio el evento y la firma fue valida |
-| Langfuse | Grafo real con `LangfuseTracker` | Validado en local; `auth_check: true` y 5 observaciones en la traza |
+| QStash | Worker `401`, OTLP asincrono y log de entrega | Validado en Render: `DELIVERED` con `200` y evento visible en dashboard |
+| Langfuse | Incidente critico real desde Render | Validado en Render: 5 observaciones en la traza |
 
 ## Configuracion validada
 
-La validacion uso los siguientes valores no secretos:
+La configuracion base del servicio se mantiene:
 
 ```text
 SENTINEL_LLM_PROVIDER=groq
@@ -42,26 +41,26 @@ SENTINEL_LLM_STRUCTURED_METHOD=function_calling
 SENTINEL_EMBEDDING_PROVIDER=gemini
 SENTINEL_EMBEDDING_MODEL=gemini-embedding-2
 SENTINEL_EMBEDDING_DIMENSIONS=384
-SENTINEL_QUEUE_PROVIDER=inline
-SENTINEL_OBSERVABILITY_PROVIDER=noop
 SENTINEL_DASHBOARD_MAX_EVENTS=100
 SENTINEL_OTEL_MAX_EVENTS=3
 SENTINEL_OTEL_DEDUP_TTL=60
-SENTINEL_RATE_LIMIT_PER_MINUTE=2
+SENTINEL_RATE_LIMIT_PER_MINUTE=120
 ```
 
-Para las validaciones locales de QStash y Langfuse se usaron ademas estos valores no
-secretos:
+La validacion remota del 2026-11-16 dejo activos en Render estos valores no secretos:
 
 ```text
 SENTINEL_QUEUE_PROVIDER=qstash
 QSTASH_URL=https://qstash-us-east-1.upstash.io
-SENTINEL_OTEL_WORKER_URL=https://webhook.site/<token-temporal>
+SENTINEL_OTEL_WORKER_URL=https://sentinel-ai-46hj.onrender.com/internal/otel/process
 SENTINEL_OBSERVABILITY_PROVIDER=langfuse
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_TRACING_ENVIRONMENT=production
 ```
 
-`SENTINEL_RATE_LIMIT_PER_MINUTE=2` se uso solo durante la prueba de rate limiting. El
-valor operativo del servicio vuelve a `120` al cerrar la validacion.
+Las claves de QStash y Langfuse se cargaron como secretos en Render y no se incluyen en
+este documento. `SENTINEL_RATE_LIMIT_PER_MINUTE=2` se uso solo durante la prueba de rate
+limiting; el valor operativo quedo en `120`.
 
 ## Health check y ruta raiz
 
@@ -395,7 +394,7 @@ El evento se proceso en la misma peticion porque la cola estaba en `inline`. La 
 Esto confirma la cadena OTLP -> normalizacion -> grafo -> dashboard en Render. El evento
 tambien genero diagnostico y runbook mediante el LLM configurado.
 
-## QStash local
+## QStash local y Render
 
 La primera prueba uso el endpoint global por defecto del SDK y fallo porque el token
 pertenece a otra region:
@@ -429,10 +428,42 @@ body_event_id: 1794733028
 El webhook recibio `User-Agent: Upstash-QStash` y `upstash-region: us-east-1`. La firma se
 verifico con `QSTASH_CURRENT_SIGNING_KEY` y `QSTASH_NEXT_SIGNING_KEY` mediante
 `QStashTelemetryQueue.verify_signature`. El `.env` local no define `QSTASH_URL`; en la
-prueba se paso por variable de entorno. Render sigue en `inline` y su worker devuelve
-`404`, por lo que la entrega remota aun no esta configurada.
+prueba se paso por variable de entorno.
 
-## Langfuse local
+### QStash en Render
+
+Con `SENTINEL_QUEUE_PROVIDER=qstash`, el worker remoto rechaza peticiones sin firma con
+`401`, que es el comportamiento esperado. Luego se envio un OTLP real a
+`/ingest/otel/v1/logs`:
+
+```text
+response={"accepted":1,"queued":1,"failed":0}
+```
+
+El log de QStash confirmo la entrega al worker:
+
+```text
+messageId: msg_7YoJxFpwkEy6sUx4uarLkWKj1uxYxawNHd4QrETyphu3jjji13XVv
+state: DELIVERED
+url: https://sentinel-ai-46hj.onrender.com/internal/otel/process
+responseStatus: 200
+```
+
+El dashboard mostro el evento normalizado:
+
+```text
+event_id: 743264080429855354
+service_name: payment
+environment: production
+log_level: ERROR
+sanitization_ok: true
+is_anomaly: true
+anomaly_score: 0.9
+severity: critical
+trace_id: trace-743264080429855354-payment
+```
+
+## Langfuse local y Render
 
 Con `SENTINEL_OBSERVABILITY_PROVIDER=langfuse` y las claves del `.env`, el SDK respondio:
 
@@ -452,38 +483,48 @@ observation: sentinel.node.response_node
 La prueba ejecuto el grafo real con `HeuristicDiagnoser` e `InMemoryRepository` para aislar
 Langfuse. El evento critico termino con `is_anomaly: true`, `notification_sent: true` y
 `trace_id` logico `trace-1794733001-payment-service`. Las observaciones se consultaron con
-`client.api.observations.get_many(trace_id=...)` del SDK. Render sigue en `noop` hasta
-configurar `SENTINEL_OBSERVABILITY_PROVIDER=langfuse` en el servicio.
+`client.api.observations.get_many(trace_id=...)` del SDK.
 
-## Configuracion necesaria en Render
+### Langfuse en Render
 
-Render no lee el `.env` local. Para habilitar las integraciones hay que cargar primero los
-secretos en el servicio:
+La traza remota del incidente reportado desde Render corresponde al evento `1794857615` y
+al `trace_id` logico `trace-1794857615-payment-service`. La UI mostro `is_anomaly: true`,
+`anomaly_score: 0.9`, `severity: critical`, `notification_sent: true` y 3 registros de
+contexto historico.
 
-- `QSTASH_TOKEN`
-- `QSTASH_CURRENT_SIGNING_KEY`
-- `QSTASH_NEXT_SIGNING_KEY`
-- `SENTINEL_OTEL_WORKER_URL=https://sentinel-ai-46hj.onrender.com/internal/otel/process`
-- `LANGFUSE_PUBLIC_KEY`
-- `LANGFUSE_SECRET_KEY`
+La consulta al SDK confirmo la traza completa:
 
-Valores no secretos que deben coincidir:
+```text
+seed: trace-1794857615-payment-service
+trace_id: 364ebdcdfa8b67db06e0248c38dab3d7
+observations_found: 5
+observation: sentinel.node.response_node
+observation: sentinel.node.context_node
+observation: sentinel.node.analysis_node
+observation: sentinel.node.ingestion_node
+observation: sentinel.incident
+```
 
-- `QSTASH_URL=https://qstash-us-east-1.upstash.io`
-- `LANGFUSE_BASE_URL=https://cloud.langfuse.com`
-- `LANGFUSE_TRACING_ENVIRONMENT=production`
+## Configuracion aplicada en Render
 
-Despues de cargar los secretos, cambiar los providers y redeploy:
+Render quedo con ambas integraciones activas y sin secretos en el repositorio:
 
-- `SENTINEL_QUEUE_PROVIDER=qstash`
-- `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`
+```text
+SENTINEL_QUEUE_PROVIDER=qstash
+QSTASH_URL=https://qstash-us-east-1.upstash.io
+SENTINEL_OTEL_WORKER_URL=https://sentinel-ai-46hj.onrender.com/internal/otel/process
+SENTINEL_OBSERVABILITY_PROVIDER=langfuse
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_TRACING_ENVIRONMENT=production
+```
 
-`render.yaml` deja `SENTINEL_QUEUE_PROVIDER=inline` y
-`SENTINEL_OBSERVABILITY_PROVIDER=noop` para no romper el arranque mientras falten
-credenciales. Si se activa `qstash` sin token, worker URL o signing keys, la composicion
-falla al iniciar; lo mismo ocurre con `langfuse` sin sus claves. Si el servicio es
-Blueprint, los cambios de provider deben ir en `render.yaml`; si es manual, se aplican en
-Environment y luego se hace redeploy.
+Los secretos `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`,
+`LANGFUSE_PUBLIC_KEY` y `LANGFUSE_SECRET_KEY` viven solo en Render Environment.
+`render.yaml` declara los mismos providers y deja las claves como `sync: false`.
+
+Si se recrea el servicio, cargar primero los secretos y despues desplegar. La composicion
+falla al iniciar si `qstash` no tiene token, worker URL o signing keys, o si `langfuse` no
+tiene sus claves.
 
 ## Calidad
 
@@ -504,17 +545,22 @@ uv run pytest tests/test_rate_limiter.py tests/test_api.py -q
 
 Resultado: `22 passed`.
 
+Para la validacion de QStash y Langfuse se ejecutaron las pruebas de composicion, cola y
+tracker:
+
+```powershell
+uv run pytest tests/test_composition.py tests/test_telemetry_queue.py tests/test_langfuse_tracker.py -q
+```
+
+Resultado: `54 passed`.
+
 ## Pendiente
 
-- Cargar los secretos de QStash y Langfuse en Render, activar
-  `SENTINEL_QUEUE_PROVIDER=qstash` y `SENTINEL_OBSERVABILITY_PROVIDER=langfuse`, y validar
-  la entrega remota y la traza remota.
-- Si el servicio es Blueprint, trasladar la activacion de providers a `render.yaml` y
-  redeployar.
 - Confirmar que `SENTINEL_RATE_LIMIT_PER_MINUTE` volvio a `120` y que el deploy quedo
   `Live`.
-- Actualizar esta evidencia con las salidas de las validaciones remotas de QStash y
-  Langfuse.
+- Si el servicio es Blueprint, verificar que `render.yaml` con `qstash`/`langfuse` sea la
+  fuente de verdad y que un redeploy no revierta los providers.
+- Vigilar la DLQ de QStash y los costos/limites de Langfuse Cloud.
 
 ## Limitaciones
 
