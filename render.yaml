@@ -47,10 +47,20 @@ services:
       - key: QSTASH_TOKEN
         sync: false
       - key: QSTASH_URL
-        value: https://qstash.upstash.io
+        value: https://qstash-us-east-1.upstash.io
       - key: QSTASH_CURRENT_SIGNING_KEY
         sync: false
       - key: QSTASH_NEXT_SIGNING_KEY
         sync: false
       - key: SENTINEL_OTEL_WORKER_URL
         sync: false
+      - key: SENTINEL_OBSERVABILITY_PROVIDER
+        value: noop
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_BASE_URL
+        value: https://cloud.langfuse.com
+      - key: LANGFUSE_TRACING_ENVIRONMENT
+        value: production
