@@ -46,8 +46,14 @@ services:
         sync: false
       - key: SENTINEL_DASHBOARD_PASSWORD
         sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: SENTINEL_REDIS_TIMEOUT
+        value: "5"
       - key: SENTINEL_NOTIFIER_PROVIDER
-        value: console
+        value: webhook
       - key: SENTINEL_NOTIFIER_WEBHOOK_URL
         sync: false
       - key: SENTINEL_NOTIFIER_TIMEOUT

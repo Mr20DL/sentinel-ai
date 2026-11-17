@@ -12,15 +12,21 @@ from src.adapters.in_memory_repository import InMemoryRepository
 from src.adapters.langfuse_tracker import LangfuseTracker, NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
 from src.adapters.rate_limiter import SlidingWindowRateLimiter
+from src.adapters.redis_dedup import UpstashRedisDedup
+from src.adapters.redis_event_feed import UpstashRedisEventFeed
+from src.adapters.redis_rate_limiter import UpstashRedisRateLimiter
 from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
+from src.adapters.upstash_redis import UpstashRedisClient
 from src.adapters.webhook_notifier import WebhookNotifier
 from src.domain.state import TelemetryEvent
+from src.ports.dedup import DedupPort
 from src.ports.diagnosis import DiagnosisPort
 from src.ports.embeddings import EmbeddingPort
 from src.ports.event_feed import EventFeedPort
 from src.ports.notifier import NotifierPort
 from src.ports.observability import ObservabilityPort
 from src.ports.queue import TelemetryQueuePort
+from src.ports.rate_limiter import RateLimiterPort
 from src.ports.repository import IncidentRepositoryPort
 
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str | None]] = {
@@ -80,6 +86,13 @@ class NotifierSettings:
     timeout: float
     max_retries: int
     backoff_seconds: float
+
+
+@dataclass(frozen=True)
+class RedisSettings:
+    url: str
+    token: str
+    timeout: float
 
 
 def _env_float(name: str, default: float) -> float:
@@ -355,22 +368,63 @@ def build_notifier() -> NotifierPort:
     )
 
 
+def _load_redis_settings() -> RedisSettings | None:
+    url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip()
+    token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
+    if not url and not token:
+        return None
+    if not url or not token:
+        raise RuntimeError(
+            "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together"
+        )
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("UPSTASH_REDIS_REST_URL must be a valid http(s) URL")
+    timeout = _env_float("SENTINEL_REDIS_TIMEOUT", 5.0)
+    if timeout <= 0:
+        raise ValueError("SENTINEL_REDIS_TIMEOUT must be greater than zero")
+    return RedisSettings(url=url, token=token, timeout=timeout)
+
+
+def build_redis_client() -> UpstashRedisClient | None:
+    """Build the optional Upstash Redis REST client."""
+    settings = _load_redis_settings()
+    if settings is None:
+        return None
+    return UpstashRedisClient(settings.url, settings.token, timeout=settings.timeout)
+
+
 def build_event_feed() -> EventFeedPort:
-    """Build the bounded in-memory feed used by the live dashboard."""
+    """Build the bounded in-memory or distributed feed used by the dashboard."""
     max_events = _env_int("SENTINEL_DASHBOARD_MAX_EVENTS", 100)
     if max_events <= 0:
         raise ValueError("SENTINEL_DASHBOARD_MAX_EVENTS must be greater than zero")
-    return InMemoryEventFeed(max_events=max_events)
+    redis = build_redis_client()
+    if redis is None:
+        return InMemoryEventFeed(max_events=max_events)
+    return UpstashRedisEventFeed(redis, max_events=max_events)
 
 
-def build_rate_limiter() -> SlidingWindowRateLimiter | None:
+def build_rate_limiter() -> RateLimiterPort | None:
     """Build the ingest rate limiter, or None when it is disabled."""
     limit = _env_int("SENTINEL_RATE_LIMIT_PER_MINUTE", 120)
     if limit < 0:
         raise ValueError("SENTINEL_RATE_LIMIT_PER_MINUTE cannot be negative")
     if limit == 0:
         return None
-    return SlidingWindowRateLimiter(limit=limit)
+    redis = build_redis_client()
+    if redis is None:
+        return SlidingWindowRateLimiter(limit=limit)
+    return UpstashRedisRateLimiter(redis, limit=limit)
+
+
+def build_dedup_store() -> DedupPort | None:
+    """Build the optional distributed deduplication store."""
+    redis = build_redis_client()
+    if redis is None:
+        return None
+    return UpstashRedisDedup(redis)
 
 
 def build_observability_adapter() -> ObservabilityPort:

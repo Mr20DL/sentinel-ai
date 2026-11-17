@@ -9,12 +9,16 @@ from src.adapters.langchain_diagnoser import LangChainDiagnoser
 from src.adapters.langfuse_tracker import NoopTracker
 from src.adapters.neon_db import PostgresIncidentRepository
 from src.adapters.rate_limiter import SlidingWindowRateLimiter
+from src.adapters.redis_dedup import UpstashRedisDedup
+from src.adapters.redis_event_feed import UpstashRedisEventFeed
+from src.adapters.redis_rate_limiter import UpstashRedisRateLimiter
 from src.adapters.telemetry_queue import InlineTelemetryQueue, QStashTelemetryQueue
 from src.adapters.webhook_notifier import WebhookNotifier
 from src.composition import (
     _load_embedding_settings,
     _load_llm_settings,
     _load_queue_settings,
+    build_dedup_store,
     build_diagnosis_adapter,
     build_embedding_adapter,
     build_event_feed,
@@ -67,6 +71,9 @@ _ENV_VARS = (
     "SENTINEL_NOTIFIER_BACKOFF_SECONDS",
     "SENTINEL_DASHBOARD_USER",
     "SENTINEL_DASHBOARD_PASSWORD",
+    "UPSTASH_REDIS_REST_URL",
+    "UPSTASH_REDIS_REST_TOKEN",
+    "SENTINEL_REDIS_TIMEOUT",
 )
 
 
@@ -460,6 +467,49 @@ def test_rate_limiter_rejects_negative_limit(monkeypatch):
 
     with pytest.raises(ValueError, match="SENTINEL_RATE_LIMIT_PER_MINUTE"):
         build_rate_limiter()
+
+
+def test_redis_adapters_are_used_when_configured(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://redis.example")
+    monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "test-token")
+
+    assert isinstance(build_rate_limiter(), UpstashRedisRateLimiter)
+    assert isinstance(build_event_feed(), UpstashRedisEventFeed)
+    assert isinstance(build_dedup_store(), UpstashRedisDedup)
+
+
+def test_redis_configuration_requires_url_and_token_together(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://redis.example")
+
+    with pytest.raises(RuntimeError, match="UPSTASH_REDIS_REST_TOKEN"):
+        build_event_feed()
+
+    monkeypatch.delenv("UPSTASH_REDIS_REST_URL")
+    monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "test-token")
+
+    with pytest.raises(RuntimeError, match="UPSTASH_REDIS_REST_URL"):
+        build_event_feed()
+
+
+def test_redis_rejects_invalid_url(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "not-a-url")
+    monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "test-token")
+
+    with pytest.raises(ValueError, match="UPSTASH_REDIS_REST_URL"):
+        build_event_feed()
+
+
+def test_redis_rejects_invalid_timeout(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://redis.example")
+    monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "test-token")
+    monkeypatch.setenv("SENTINEL_REDIS_TIMEOUT", "0")
+
+    with pytest.raises(ValueError, match="SENTINEL_REDIS_TIMEOUT"):
+        build_event_feed()
 
 
 def test_default_embedding_provider_is_disabled(monkeypatch):

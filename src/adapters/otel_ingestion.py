@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from src.adapters.in_memory_dedup import InMemoryDedup
 from src.domain.state import TelemetryEvent, TelemetryMetrics
+from src.ports.dedup import DedupPort
 
 _CRITICAL_LEVELS = {"ERROR", "CRITICAL", "FATAL"}
 _SEVERITY_ALIASES = {
@@ -27,6 +28,7 @@ class OtelLogNormalizer:
         dedup_ttl: float = 60.0,
         max_message_length: int = 4000,
         clock: Callable[[], float] = time.monotonic,
+        dedup_store: DedupPort | None = None,
     ) -> None:
         if dedup_ttl < 0:
             raise ValueError("dedup_ttl must be non-negative")
@@ -34,12 +36,13 @@ class OtelLogNormalizer:
             raise ValueError("max_message_length must be greater than zero")
         self._dedup_ttl = dedup_ttl
         self._max_message_length = max_message_length
-        self._clock = clock
-        self._seen: OrderedDict[str, float] = OrderedDict()
+        self._dedup = dedup_store if dedup_store is not None else InMemoryDedup(clock=clock)
 
     def clear(self) -> None:
-        """Clear the in-memory deduplication window."""
-        self._seen.clear()
+        """Clear the deduplication window when the store supports it."""
+        clear = getattr(self._dedup, "clear", None)
+        if callable(clear):
+            clear()
 
     def normalize(self, payload: object, max_events: int = 3) -> list[TelemetryEvent]:
         """Return a bounded list of critical events from an OTLP logs payload."""
@@ -128,23 +131,11 @@ class OtelLogNormalizer:
         )
 
     def _allow(self, event: TelemetryEvent) -> bool:
-        now = self._clock()
-        while self._seen:
-            _, seen_at = next(iter(self._seen.items()))
-            if now - seen_at <= self._dedup_ttl:
-                break
-            self._seen.popitem(last=False)
-
         key = (
             f"{event.environment}|{event.service_name}|{event.log_level}|"
             f"{event.timestamp.strftime('%Y%m%d%H%M')}|{event.message[:200]}"
         )
-        if key in self._seen:
-            return False
-        self._seen[key] = now
-        while len(self._seen) > 1000:
-            self._seen.popitem(last=False)
-        return True
+        return self._dedup.allow(key, self._dedup_ttl)
 
     def _severity(self, record: Mapping[str, Any]) -> str:
         text = self._text(record.get("severityText")).upper()

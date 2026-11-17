@@ -34,15 +34,16 @@ La Fase 4 agrega:
 - `NoopTracker` como default para desarrollo y tests, sin llamadas de red.
 - Cola Upstash QStash para desacoplar la ingesta OTLP mediante
   `SENTINEL_QUEUE_PROVIDER=qstash`; `inline` sigue siendo el default local.
-- Dashboard operativo en `/dashboard`: feed en memoria de los ultimos eventos, score de
-  anomalia, severidad, causa raiz y runbook, actualizado cada 2 segundos.
+- Dashboard operativo en `/dashboard`: feed de los ultimos eventos (en memoria o Redis),
+  score de anomalia, severidad, causa raiz y runbook, actualizado cada 2 segundos.
 - Rate limiting deslizante por cliente en `/events` y `/ingest/otel/v1/logs`, configurable
-  con `SENTINEL_RATE_LIMIT_PER_MINUTE` (`0` lo desactiva).
+  con `SENTINEL_RATE_LIMIT_PER_MINUTE` (`0` lo desactiva). Con Upstash Redis se comparte
+  entre instancias junto con la deduplicacion OTel y el feed del dashboard.
 
 Lo que sigue sin implementarse de fases posteriores:
 
 - Metricas y trazas OTLP; el MVP actual procesa solo logs.
-- Rate limiting distribuido entre varias instancias y autenticacion multiinquilino.
+- Autenticacion multiinquilino; el estado distribuido ya es opt-in con Upstash Redis.
 
 Si `DATABASE_URL` no esta configurado, la API sigue usando `InMemoryRepository` y el
 estado se pierde al reiniciar. Para persistencia real, configura Neon y ejecuta el seed.
@@ -174,9 +175,9 @@ El evento procesado tambien aparece en el dashboard operativo:
 http://127.0.0.1:8000/dashboard
 ```
 
-La pagina consulta `GET /dashboard/events?limit=50` cada 2 segundos. El feed vive en
-memoria, conserva 100 eventos por defecto (`SENTINEL_DASHBOARD_MAX_EVENTS`) y se reinicia
-con el proceso.
+La pagina consulta `GET /dashboard/events?limit=50` cada 2 segundos. El feed conserva 100
+eventos por defecto (`SENTINEL_DASHBOARD_MAX_EVENTS`). Sin Redis vive en memoria y se
+reinicia con el proceso; con Upstash Redis se comparte entre instancias.
 
 ## 5. Variables por proveedor
 
@@ -636,8 +637,8 @@ ejecucion genera `sentinel.incident` y una observacion por nodo
 
 `GET /dashboard` sirve la vista operativa y `GET /dashboard/events?limit=50` entrega los
 ultimos eventos procesados como JSON. El dashboard muestra estado de sanitizacion,
-anomalia, severidad, score, causa raiz y runbook. No requiere autenticacion porque es de
-solo lectura y no expone payloads completos.
+anomalia, severidad, score, causa raiz y runbook. No expone payloads completos y puede
+protegerse con HTTP Basic como se explica en la seccion 13.8.
 
 El rate limiting se aplica a `/events` y `/ingest/otel/v1/logs` con una ventana
 deslizante de 60 segundos por cliente:
@@ -651,8 +652,9 @@ SENTINEL_DASHBOARD_MAX_EVENTS=100
 - Al excederlo, la API responde `429` con `Retry-After: 60`.
 - La clave del cliente sale del primer valor de `X-Forwarded-For` (Render lo agrega) o
   de la IP directa si el header no existe.
-- El limite y el feed son por proceso: se reinician al desplegar y no se comparten entre
-  instancias. Para varias instancias se necesita Redis o un gateway dedicado.
+- Sin Redis, el limite y el feed son por proceso: se reinician al desplegar y no se
+  comparten entre instancias. Con Upstash Redis se comparten, como se explica en la
+  seccion 13.9.
 
 ### 13.8 Notificador y auth del dashboard
 
@@ -681,7 +683,33 @@ SENTINEL_DASHBOARD_PASSWORD=tu_password
 Si ambas variables existen, `/dashboard` y `/dashboard/events` exigen HTTP Basic. Si solo
 se define una, responden `503`. Sin ambas, el dashboard queda publico para la demo.
 
-### 13.9 Limites y siguientes pasos
+### 13.9 Estado distribuido opcional con Upstash Redis
+
+El rate limiting, la deduplicacion OTel y el feed del dashboard pueden compartirse entre
+instancias usando Redis. SentinelAI habla con Upstash mediante su API REST, por lo que no
+agrega un cliente Redis ni requiere conexiones TCP persistentes:
+
+```dotenv
+UPSTASH_REDIS_REST_URL=https://tu-endpoint.upstash.io
+UPSTASH_REDIS_REST_TOKEN=tu-token
+SENTINEL_REDIS_TIMEOUT=5
+```
+
+- Si ambas variables estan definidas, se usan `UpstashRedisRateLimiter`,
+  `UpstashRedisDedup` y `UpstashRedisEventFeed`.
+- Si faltan ambas, se mantiene el comportamiento local en memoria.
+- Si se define solo una, la aplicacion falla al iniciar para evitar una configuracion
+  ambigua.
+- El rate limiter ejecuta un script Lua atomico sobre un sorted set por cliente.
+- La deduplicacion usa `SET ... NX PX` con una clave SHA-256 para no guardar mensajes.
+- El feed usa una lista acotada con `LPUSH`, `LTRIM` y TTL de 24 horas. Conserva como
+  maximo `SENTINEL_DASHBOARD_MAX_EVENTS` eventos.
+- Si Redis no responde, el rate limiting y la deduplicacion fallan abiertos para no
+  bloquear la ingesta; un fallo del feed se registra y el procesamiento del incidente
+  continua. La disponibilidad del diagnostico prevalece sobre la proteccion distribuida.
+- El token de Upstash es un secreto: configuralo solo en Render Environment.
+
+### 13.10 Limites y siguientes pasos
 
 - Solo se procesan logs `ERROR`, `CRITICAL` o `FATAL`. Un `WARN` como el de
   `paymentFailure` no se ingiere; el impacto se observa en el `ERROR`/`CRITICAL` de
@@ -689,8 +717,10 @@ se define una, responden `503`. Sin ambas, el dashboard queda publico para la de
 - Los logs internos del Collector (`otelcol-contrib`) se descartan con
   `filter/sentinelai_noise` para evitar incidentes del propio Collector.
 - Las metricas y trazas OTLP quedan para una siguiente iteracion.
-- La deduplicacion es en memoria por proceso; con varios workers se necesita un
-  almacenamiento compartido.
+- Sin Redis, la deduplicacion y el feed son por proceso; configura Upstash Redis para
+  compartirlos entre varias instancias.
+- Los checkpoints de LangGraph siguen en `MemorySaver`; la persistencia con
+  `PostgresSaver` queda para una siguiente iteracion.
 - El demo no corre en Render Free. Para la evidencia, ejecutalo localmente y captura la
   respuesta del endpoint y los logs del Collector.
 - Si el Collector no conecta, confirma que SentinelAI escucha en `0.0.0.0`, que el
@@ -714,5 +744,8 @@ se define una, responden `503`. Sin ambas, el dashboard queda publico para la de
 - [ ] `GET /dashboard` carga y el evento critico aparece en la tabla sin recargar la
       pagina.
 - [ ] Exceder `SENTINEL_RATE_LIMIT_PER_MINUTE` devuelve `429` con `Retry-After: 60`.
+- [ ] Si `UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN` estan definidos, el rate
+      limiting, la deduplicacion y el feed sobreviven a un reinicio del servicio.
 - [ ] Puedes explicar que Neon/pgvector, Gemini Embeddings, la ingesta OTel Demo, el
-      dashboard y el rate limiting estan activos, y que QStash y Langfuse quedan opt-in.
+      dashboard y el rate limiting estan activos, y que QStash, Langfuse y Redis quedan
+      opt-in.

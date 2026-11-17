@@ -109,6 +109,17 @@ def test_deduplicates_same_service_message_and_minute():
     assert len(normalizer.normalize(payload)) == 1
 
 
+def test_accepts_an_injected_deduplication_store():
+    class _DenyAll:
+        def allow(self, key: str, ttl_seconds: float) -> bool:
+            return False
+
+    normalizer = OtelLogNormalizer(dedup_store=_DenyAll())
+
+    assert normalizer.normalize(_payload()) == []
+    normalizer.clear()
+
+
 def test_limits_events_per_request():
     normalizer = OtelLogNormalizer()
     payload = _payload(message="Payment charge failed")

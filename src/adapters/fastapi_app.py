@@ -1,3 +1,4 @@
+import logging
 import os
 import secrets
 import uuid
@@ -11,9 +12,16 @@ from pydantic import ValidationError
 
 from src.adapters.dashboard_page import DASHBOARD_HTML
 from src.adapters.otel_ingestion import OtelLogNormalizer
-from src.composition import build_event_feed, build_rate_limiter, build_telemetry_queue
+from src.composition import (
+    build_dedup_store,
+    build_event_feed,
+    build_rate_limiter,
+    build_telemetry_queue,
+)
 from src.domain.graph import create_sentinel_graph
 from src.domain.state import TelemetryEvent
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="SentinelAI",
@@ -35,7 +43,10 @@ def _process_event(event: TelemetryEvent) -> dict:
         {"raw_event": event, "audit_logs": []},
         config={"configurable": {"thread_id": _build_thread_id(event)}},
     )
-    event_feed.record(event, result)
+    try:
+        event_feed.record(event, result)
+    except Exception:
+        logger.exception("Failed to record event in the dashboard feed")
     return result
 
 
@@ -60,7 +71,8 @@ def _non_negative_float_env(name: str, default: float) -> float:
 
 
 otel_normalizer = OtelLogNormalizer(
-    dedup_ttl=_non_negative_float_env("SENTINEL_OTEL_DEDUP_TTL", 60.0)
+    dedup_ttl=_non_negative_float_env("SENTINEL_OTEL_DEDUP_TTL", 60.0),
+    dedup_store=build_dedup_store(),
 )
 
 
@@ -109,7 +121,14 @@ def _client_key(request: Request) -> str:
 
 
 def _enforce_rate_limit(request: Request) -> None:
-    if rate_limiter is not None and not rate_limiter.allow(_client_key(request)):
+    if rate_limiter is None:
+        return
+    try:
+        allowed = rate_limiter.allow(_client_key(request))
+    except Exception:
+        logger.exception("Rate limiter unavailable; allowing request")
+        return
+    if not allowed:
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded",
